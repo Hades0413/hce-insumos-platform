@@ -1,0 +1,6 @@
+apiVersion: 1
+providers:
+  - name: hce
+    folder: HCE Insumos
+    type: file
+    options: { path: /etc/grafana/provisioning/dashboards }

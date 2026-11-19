@@ -1,0 +1,315 @@
+# =============================================================================
+# HCE Insumos — despliegue local unificado (BD + Back + Front)
+#   ./scripts/setup.sh            # genera .env con secretos
+#   docker compose up -d --build  # levanta todo
+#   docker compose --profile monitoring up -d   # + Prometheus y Grafana
+#   docker compose up -d --scale inventory-service=3   # escalado horizontal
+#
+# Redes segmentadas (defensa en profundidad):
+#   edge    -> navegador: front (3000) y API Gateway (4000)
+#   backend -> gateway <-> NATS <-> microservicios (interna, sin salida)
+#   data    -> microservicios <-> SQL Server
+# =============================================================================
+name: hce-insumos
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  tmpfs: ["/tmp"]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  stop_grace_period: 15s
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-backend-build: &backend-build
+  context: ./backend
+  dockerfile: Dockerfile
+
+x-frontend-build-args: &frontend-build-args
+  NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000/api/v1}
+  MF_COMPRAS_URL: http://mf-compras:3001
+  MF_VENTAS_URL: http://mf-ventas:3002
+  MF_KARDEX_URL: http://mf-kardex:3003
+
+x-service-common-env: &service-common-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  NATS_SERVERS: nats://nats:4222
+  METRICS_PORT: "9464"
+  DB_HOST: sqlserver
+  DB_PORT: "1433"
+  DB_ENCRYPT: "true"
+  # Certificado autofirmado del contenedor de desarrollo. En producción: false + CA válida.
+  DB_TRUST_SERVER_CERT: "true"
+
+services:
+  # ------------------------------------------------------------------ Datos
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Ejecuta ./scripts/setup.sh}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    ports:
+      - "127.0.0.1:1433:1433" # solo localhost (para SSMS/Azure Data Studio)
+    volumes:
+      - mssql-data:/var/opt/mssql
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 3g }
+
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    entrypoint: ["/bin/bash", "/scripts/scripts/init-db.sh"]
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      INSUMOS_DB_PASSWORD: ${INSUMOS_DB_PASSWORD:?Ejecuta ./scripts/setup.sh}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Ejecuta ./scripts/setup.sh}
+      DB_HOST: sqlserver
+      SEED_DEMO_DATA: "true"
+    volumes:
+      - ./database:/scripts:ro
+    networks: [data]
+    depends_on:
+      sqlserver: { condition: service_healthy }
+    restart: "no"
+
+  # ------------------------------------------------------------------ Mensajería
+  nats:
+    image: nats:2.10-alpine
+    command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      NATS_GATEWAY_PASSWORD: ${NATS_GATEWAY_PASSWORD:?Ejecuta ./scripts/setup.sh}
+      NATS_AUTH_PASSWORD: ${NATS_AUTH_PASSWORD}
+      NATS_INVENTORY_PASSWORD: ${NATS_INVENTORY_PASSWORD}
+    volumes:
+      - ./infra/nats/nats.conf:/etc/nats/nats.conf:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    <<: *hardening
+
+  # ------------------------------------------------------------------ Microservicios
+  auth-service:
+    build: { <<: *backend-build, args: { APP: auth-service } }
+    image: hce-insumos/auth-service:local
+    environment:
+      <<: *service-common-env
+      NATS_USER: auth_service
+      NATS_PASSWORD: ${NATS_AUTH_PASSWORD}
+      DB_NAME: HCE_Auth
+      DB_USER: hce_auth_app
+      DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      DB_POOL_MAX: "10"
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY_B64:?Ejecuta ./scripts/setup.sh}
+      JWT_ACCESS_TTL_MIN: "30"
+      JWT_REFRESH_TTL_HOURS: "8"
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-false}
+      SEED_USERS_PASSWORD: ${SEED_USERS_PASSWORD:-}
+      UV_THREADPOOL_SIZE: "8" # scrypt asíncrono usa el threadpool de libuv
+    networks: [backend, data]
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+      nats: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9464/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 384m }
+    <<: *hardening
+
+  inventory-service:
+    build: { <<: *backend-build, args: { APP: inventory-service } }
+    image: hce-insumos/inventory-service:local
+    environment:
+      <<: *service-common-env
+      NATS_USER: inventory_service
+      NATS_PASSWORD: ${NATS_INVENTORY_PASSWORD}
+      DB_NAME: HCE_Insumos
+      DB_USER: hce_insumos_app
+      DB_PASSWORD: ${INSUMOS_DB_PASSWORD}
+      DB_POOL_MAX: "20"
+      IGV_RATE: ${IGV_RATE:-0.18}
+      MARGEN_VENTA: ${MARGEN_VENTA:-0.35}
+    networks: [backend, data]
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+      nats: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9464/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 384m }
+    <<: *hardening
+
+  # ------------------------------------------------------------------ API Gateway
+  api-gateway:
+    build: { <<: *backend-build, args: { APP: api-gateway } }
+    image: hce-insumos/api-gateway:local
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: "4000"
+      API_PREFIX: api/v1
+      METRICS_PORT: "9464"
+      NATS_SERVERS: nats://nats:4222
+      NATS_USER: api_gateway
+      NATS_PASSWORD: ${NATS_GATEWAY_PASSWORD}
+      CORS_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY_B64:?Ejecuta ./scripts/setup.sh}
+      CSRF_SECRET: ${CSRF_SECRET:?Ejecuta ./scripts/setup.sh}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+      THROTTLE_TTL_MS: "60000"
+      THROTTLE_LIMIT: "300"
+      LOGIN_THROTTLE_LIMIT: "10"
+      RPC_TIMEOUT_MS: "8000"
+      TRUST_PROXY: "false"
+    ports:
+      - "4000:4000"
+    networks: [edge, backend]
+    depends_on:
+      nats: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+      inventory-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/api/v1/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 384m }
+    <<: *hardening
+
+  # ------------------------------------------------------------------ Frontend (Multi-Zones)
+  shell:
+    build:
+      context: ./frontend
+      args: { <<: *frontend-build-args, APP: shell }
+    image: hce-insumos/shell:local
+    environment:
+      PORT: "3000"
+      APP_PUBLIC_URL: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    ports:
+      - "3000:3000"
+    networks: [edge]
+    depends_on:
+      mf-compras: { condition: service_started }
+      mf-ventas: { condition: service_started }
+      mf-kardex: { condition: service_started }
+      api-gateway: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 384m }
+    <<: *hardening
+    tmpfs: ["/tmp", "/app/apps/shell/.next/cache"]
+
+  mf-compras:
+    build:
+      context: ./frontend
+      args: { <<: *frontend-build-args, APP: mf-compras, PORT: "3001" }
+    image: hce-insumos/mf-compras:local
+    environment:
+      PORT: "3001"
+      APP_PUBLIC_URL: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    networks: [edge]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256m }
+    <<: *hardening
+    tmpfs: ["/tmp", "/app/apps/mf-compras/.next/cache"]
+
+  mf-ventas:
+    build:
+      context: ./frontend
+      args: { <<: *frontend-build-args, APP: mf-ventas, PORT: "3002" }
+    image: hce-insumos/mf-ventas:local
+    environment:
+      PORT: "3002"
+      APP_PUBLIC_URL: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    networks: [edge]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256m }
+    <<: *hardening
+    tmpfs: ["/tmp", "/app/apps/mf-ventas/.next/cache"]
+
+  mf-kardex:
+    build:
+      context: ./frontend
+      args: { <<: *frontend-build-args, APP: mf-kardex, PORT: "3003" }
+    image: hce-insumos/mf-kardex:local
+    environment:
+      PORT: "3003"
+      APP_PUBLIC_URL: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    networks: [edge]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256m }
+    <<: *hardening
+    tmpfs: ["/tmp", "/app/apps/mf-kardex/.next/cache"]
+
+  # ------------------------------------------------------------------ Observabilidad (opcional)
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks: [backend, monitoring]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3100:3000"
+    networks: [monitoring]
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+  data: {}
+  monitoring: {}
+
+volumes:
+  mssql-data:
+  prometheus-data:
+  grafana-data:

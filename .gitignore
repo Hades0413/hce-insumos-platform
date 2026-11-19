@@ -1,0 +1,20 @@
+# Secretos y entorno local
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+
+# Dependencias / builds
+node_modules/
+dist/
+.next/
+coverage/
+*.tsbuildinfo
+*.log
+
+# IDE / SO
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
