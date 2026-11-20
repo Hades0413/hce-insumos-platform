@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (NestJS)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.8.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm, cache-dependency-path: backend/pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run test:cov
+      - run: pnpm run test:e2e
+      - run: pnpm run build
+      - name: Auditoría de dependencias (producción)
+        run: pnpm audit --prod --audit-level high
+
+  frontend:
+    name: Frontend (Next.js Multi-Zones)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.8.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm, cache-dependency-path: frontend/pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r lint
+      - run: pnpm -r test
+      - run: pnpm -r build
+      - name: Auditoría de dependencias (producción)
+        run: pnpm audit --prod --audit-level high
+
+  database:
+    name: SQL Server scripts
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Ci_Only_Pass_123!
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Ci_Only_Pass_123!' -C -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ejecutar scripts de init (2 veces => idempotencia)
+        run: |
+          for run in 1 2; do
+            docker run --rm --network host -v "$PWD/database:/scripts:ro" \
+              -e MSSQL_SA_PASSWORD='Ci_Only_Pass_123!' -e INSUMOS_DB_PASSWORD='Ci_Insumos_Pass_1234!' \
+              -e AUTH_DB_PASSWORD='Ci_Auth_Pass_12345!' -e DB_HOST=localhost \
+              mcr.microsoft.com/mssql/server:2022-latest bash /scripts/scripts/init-db.sh
+          done
+      - name: Consultas T-SQL de verificación
+        run: |
+          docker run --rm --network host -v "$PWD/database:/scripts:ro" -e SQLCMDPASSWORD='Ci_Only_Pass_123!' \
+            mcr.microsoft.com/mssql/server:2022-latest \
+            /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -I -b -i /scripts/queries/consultas_tsql.sql
+
+  secrets-scan:
+    name: Escaneo de secretos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Docker images + Trivy
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generar .env de CI
+        run: ./scripts/setup.sh
+      - name: Build de todas las imágenes
+        run: docker compose build
+      - name: Escaneo de vulnerabilidades (imagen del gateway)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hce-insumos/api-gateway:local
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"

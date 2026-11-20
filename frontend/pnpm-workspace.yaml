@@ -1,0 +1,10 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Solo estos paquetes pueden ejecutar scripts de instalación (supply-chain hardening).
+allowBuilds:
+  '@tailwindcss/oxide': true
+  sharp: true
+  unrs-resolver: true
+  esbuild: true

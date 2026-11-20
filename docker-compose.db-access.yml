@@ -1,0 +1,12 @@
+# Acceso local a SQL Server para herramientas de administración (DBeaver, SSMS, Azure Data Studio).
+# Opcional y solo para desarrollo: publica el puerto 1433 únicamente en 127.0.0.1.
+#   docker compose -f docker-compose.yml -f docker-compose.db-access.yml up -d sqlserver
+# La red "data" es interna (sin puertos publicables); se agrega una red puente solo para este acceso.
+services:
+  sqlserver:
+    ports:
+      - "127.0.0.1:1433:1433"
+    networks: [data, db_access]
+
+networks:
+  db_access: {}

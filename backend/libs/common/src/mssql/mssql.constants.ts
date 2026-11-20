@@ -1,0 +1,16 @@
+export const MSSQL_POOL = Symbol('MSSQL_POOL');
+export const MSSQL_OPTIONS = Symbol('MSSQL_OPTIONS');
+
+export const SQL_BUSINESS_ERRORS = {
+  NOT_FOUND: 50002,
+  CONCURRENCY_CONFLICT: 50003,
+  DUPLICATE: 50004,
+  HAS_MOVEMENTS: 50005,
+  INVALID_DOCUMENT: 50006,
+  PRODUCTO_CON_STOCK: 50007,
+  INMUTABLE: 50010,
+} as const;
+
+export const SQL_TRANSIENT_ERRORS: ReadonlySet<number> = new Set([1205, 1222, 40501, 40613, 49918, 49919, 49920]);
+
+export const SQL_UNIQUE_VIOLATION: ReadonlySet<number> = new Set([2601, 2627]);

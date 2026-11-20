@@ -1,0 +1,12 @@
+# Backend (NestJS). Las reglas generales están en el .gitignore raíz; aquí se
+# repiten las críticas por si el backend se versiona/copia por separado.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log

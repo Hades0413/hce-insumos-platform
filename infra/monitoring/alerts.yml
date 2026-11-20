@@ -1,0 +1,57 @@
+# Reglas de alerta (Prometheus). Severidades: critical = acción inmediata, warning = revisar en el turno.
+groups:
+  - name: hce-disponibilidad
+    rules:
+      - alert: ServicioCaido
+        expr: up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} no responde"
+          description: "El target {{ $labels.instance }} lleva más de 1 minuto sin responder a Prometheus."
+      - alert: TasaDeErrores5xxAlta
+        expr: sum(rate(hce_http_request_duration_seconds_count{status=~"5.."}[5m])) / clamp_min(sum(rate(hce_http_request_duration_seconds_count[5m])), 1) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Más del 5% de las respuestas del gateway son 5xx"
+      - alert: LatenciaP95Alta
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(hce_http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 > 1 s en {{ $labels.route }}"
+      - alert: EventLoopBloqueado
+        expr: max by (service) (nodejs_eventloop_lag_p99_seconds) > 0.2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Event loop lag p99 > 200 ms en {{ $labels.service }}"
+
+  - name: hce-seguridad
+    rules:
+      - alert: PicoDeLoginsFallidos
+        expr: sum(increase(hce_security_events_total{type="login_failed"}[5m])) > 30
+        labels: { severity: warning }
+        annotations:
+          summary: "Posible ataque de fuerza bruta o credential stuffing (>30 logins fallidos en 5 min)"
+      - alert: RateLimitSostenido
+        expr: sum(increase(hce_security_events_total{type="rate_limited"}[5m])) > 100
+        labels: { severity: warning }
+        annotations:
+          summary: "Rate limit activado de forma sostenida (posible abuso o cliente mal configurado)"
+      - alert: IntentosCsrfOAccesoDenegado
+        expr: sum(increase(hce_security_events_total{type=~"csrf_invalid|forbidden"}[10m])) > 20
+        labels: { severity: warning }
+        annotations:
+          summary: "Muchos 403 (CSRF o permisos) en 10 min: revisar posible abuso o un permiso mal asignado"
+      - alert: OutboxConFallos
+        expr: sum(increase(hce_outbox_failed_total[10m])) > 10
+        labels: { severity: warning }
+        annotations:
+          summary: "El relay del outbox no logra publicar eventos de integración (revisar NATS)"
+      - alert: FallasDeCasoDeUso
+        expr: sum by (operation) (increase(hce_operation_duration_seconds_count{outcome="error"}[5m])) > 5
+        labels: { severity: critical }
+        annotations:
+          summary: "Errores no controlados en {{ $labels.operation }}"

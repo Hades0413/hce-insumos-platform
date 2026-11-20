@@ -1,0 +1,24 @@
+{
+  "name": "@hce/config",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./next": {
+      "types": "./next.d.mts",
+      "default": "./next.mjs"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint src next.mjs"
+  },
+  "peerDependencies": {
+    "next": "^16.0.0"
+  },
+  "devDependencies": {
+    "next": "16.4.5"
+  }
+}

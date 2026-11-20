@@ -1,0 +1,10 @@
+# Política de cadena de suministro: solo se permiten scripts de instalación explícitos.
+allowBuilds:
+  '@scarf/scarf': false
+  '@nestjs/core': false
+  '@parcel/watcher': false
+  unrs-resolver: false
+
+# Parches de seguridad de dependencias transitivas (pnpm audit).
+overrides:
+  multer: '>=2.5.0'

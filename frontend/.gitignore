@@ -1,0 +1,13 @@
+# Frontend (Next.js Multi-Zones). Las reglas generales están en el .gitignore raíz;
+# aquí se repiten las críticas por si el frontend se versiona/copia por separado.
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+*.log

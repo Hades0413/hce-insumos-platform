@@ -1,0 +1,194 @@
+/*
+ * Design tokens HCE Insumos (Tailwind v4 @theme): compartidos por todas las zonas.
+ *
+ * Dirección: "farmacia de mostrador". El oficio real es leer lotes y cantidades
+ * sin error, de pie, en tablet o laptop. Por eso:
+ *  - Tipografía Atkinson Hyperlegible (Braille Institute): distingue 0/O, 1/l/I.
+ *    Variante Mono solo para códigos de lote (son códigos, se leen carácter a carácter).
+ *  - Verde de la cruz de farmacia como color de marca; ámbar = dispensación (salida);
+ *    rojo = alerta de stock. El color siempre codifica información, nunca decora.
+ *  - Superficies planas con borde de 1px (sin sombras genéricas); jerarquía por tinte.
+ * Contraste verificado WCAG 2.2 AA (texto ≥ 4.5:1 sobre surface y canvas).
+ */
+@theme {
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-code: var(--font-atkinson-mono), ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Verde farmacia */
+  --color-brand-50: #eaf4ef;
+  --color-brand-100: #d2e8dc;
+  --color-brand-200: #a6d0ba;
+  --color-brand-500: #12825f;
+  --color-brand-600: #0b6e4f; /* 6.1:1 sobre blanco */
+  --color-brand-700: #095a41;
+  --color-brand-800: #084734;
+  --color-brand-900: #06352a;
+
+  /* Papel frío y tinta de etiqueta */
+  --color-surface: #ffffff;
+  --color-canvas: #f2f5f3;
+  --color-ink: #1b2a2f;
+  --color-muted: #55656b; /* 5.6:1 sobre canvas */
+  --color-line: #d3dcd8;
+  --color-line-strong: #a9b7b1;
+
+  /* Estados semánticos del kardex */
+  --color-ok: #0b6e4f; /* entrada */
+  --color-ok-bg: #e4f2ea;
+  --color-warn: #9a4708; /* salida / dispensación */
+  --color-warn-bg: #fdf0e3;
+  --color-danger: #b3261e; /* stock insuficiente */
+  --color-danger-bg: #fbeceb;
+
+  --radius-card: 0.5rem;
+  --shadow-card: none;
+  --shadow-overlay: 0 24px 48px -12px rgb(6 53 42 / 0.35);
+
+  /* Escala tipográfica (razón 1.2, base 16px): legible a 50–70 cm de una tablet */
+  --text-display: 2rem;
+  --text-display--line-height: 1.15;
+
+  /* Movimiento: solo como respuesta a una acción del usuario. Curvas con leve
+     rebote ("spring") en lo que aparece; salidas y estados sin rebote. */
+  --ease-spring: cubic-bezier(0.22, 1.25, 0.36, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-line-in: line-in 280ms var(--ease-out-quart) both;
+  --animate-stamp: stamp 420ms var(--ease-spring) both;
+  --animate-shake: shake 320ms var(--ease-out-quart) both;
+  --animate-dialog-in: dialog-in 320ms var(--ease-spring) both;
+  --animate-sheet-in: sheet-in 320ms var(--ease-spring) both;
+  --animate-drawer-in: drawer-in 280ms var(--ease-out-quart) both;
+  --animate-backdrop-in: backdrop-in 200ms ease-out both;
+  --animate-toast-in: toast-in 300ms var(--ease-spring) both;
+  --animate-view-in: view-in 240ms var(--ease-out-quart) both;
+  --animate-check: check 360ms var(--ease-out-quart) 80ms both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-pop: pop 260ms var(--ease-spring) both;
+  --animate-line-out: line-out 200ms var(--ease-out-quart) both;
+  --animate-toast-out: toast-out 180ms ease-in both;
+  --animate-menu-in: menu-in 180ms var(--ease-spring) both;
+  --animate-drawer-right-in: drawer-right-in 300ms var(--ease-out-quart) both;
+
+  @keyframes line-in {
+    from { opacity: 0; transform: translateY(-6px); background-color: var(--color-brand-50); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes stamp {
+    0% { transform: scale(1.35) rotate(-4deg); opacity: 0; }
+    60% { transform: scale(0.94) rotate(0.5deg); opacity: 1; }
+    100% { transform: none; }
+  }
+  @keyframes shake {
+    0%, 100% { transform: none; }
+    25% { transform: translateX(-3px); }
+    50% { transform: translateX(3px); }
+    75% { transform: translateX(-2px); }
+  }
+  @keyframes dialog-in {
+    from { opacity: 0; transform: translateY(12px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes sheet-in {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+  @keyframes drawer-in {
+    from { transform: translateX(-100%); }
+    to { transform: none; }
+  }
+  @keyframes backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes view-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes check {
+    from { stroke-dashoffset: 24; }
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @keyframes line-out {
+    to { opacity: 0; transform: translateX(12px); }
+  }
+  @keyframes toast-out {
+    to { opacity: 0; transform: translateY(8px) scale(0.98); }
+  }
+  @keyframes drawer-right-in {
+    from { transform: translateX(100%); }
+    to { transform: none; }
+  }
+  @keyframes menu-in {
+    from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes pop {
+    0% { transform: scale(0.6); opacity: 0; }
+    100% { transform: none; opacity: 1; }
+  }
+}
+
+/* Transiciones entre secciones de una zona: API de View Transitions invocada desde JS
+   (runViewTransition) con detección de soporte. No se usa el opt-in entre documentos
+   (@view-transition): entre zonas hay rewrites/redirecciones que lo abortan. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: var(--ease-out-quart);
+}
+
+@utility skeleton {
+  border-radius: 4px;
+  background-image: linear-gradient(90deg, var(--color-line) 0%, var(--color-canvas) 50%, var(--color-line) 100%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    font-feature-settings: 'tnum' 1; /* cifras tabulares: columnas de montos alineadas */
+  }
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  /* Inputs numéricos sin spinners: en tablets el spinner provoca errores de digitación. */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/coverage
+**/*.tsbuildinfo
+**/.env*
+!**/.env.example
+**/*.test.ts
+**/*.test.tsx
+.git
+Dockerfile
+.dockerignore
+README.md
