@@ -1,7 +1,7 @@
 import { KardexItemDto, Paginated, SearchQuery } from '@hce/contracts';
 import { KardexReadModel } from '../../../domain/kardex/kardex.read-model.port';
 import { normalizarPaginacion } from '../../../domain/shared/audit-context';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 
 export class ListarKardexUseCase implements UseCase<SearchQuery, Paginated<KardexItemDto>> {
   constructor(private readonly kardex: KardexReadModel) {}

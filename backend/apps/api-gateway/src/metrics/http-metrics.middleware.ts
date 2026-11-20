@@ -11,7 +11,6 @@ const httpDuration = new Histogram({
   registers: [metricsRegistry],
 });
 
-/** RED metrics por ruta (plantilla, no URL concreta => cardinalidad acotada). */
 @Injectable()
 export class HttpMetricsMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction): void {

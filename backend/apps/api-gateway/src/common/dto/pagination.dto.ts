@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
 export class PageQueryDto {
-  @ApiPropertyOptional({ minimum: 1, default: 1 })
+  @ApiPropertyOptional({ minimum: 1, default: 1, example: 1 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -11,7 +11,7 @@ export class PageQueryDto {
   @Max(100_000)
   page?: number;
 
-  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
+  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20, example: 20 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -21,7 +21,7 @@ export class PageQueryDto {
 }
 
 export class SearchQueryDto extends PageQueryDto {
-  @ApiPropertyOptional({ maxLength: 100, description: 'Filtra por nombre o número de lote' })
+  @ApiPropertyOptional({ maxLength: 100, example: 'para', description: 'Filtra por nombre o número de lote' })
   @IsOptional()
   @IsString()
   @MaxLength(100)

@@ -1,7 +1,7 @@
 {
   "name": "hce-insumos-backend",
   "version": "1.0.0",
-  "description": "HCE Insumos — API Gateway + microservicios (auth, inventory) NestJS sobre NATS y SQL Server",
+  "description": "HCE Insumos: API Gateway + microservicios (auth, inventory) NestJS sobre NATS y SQL Server",
   "private": true,
   "license": "UNLICENSED",
   "engines": {

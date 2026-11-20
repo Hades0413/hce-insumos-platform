@@ -1,193 +1,196 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { useFieldArray, useForm, useWatch } from 'react-hook-form';
-import { api, ApiError, type CompraDetalleDto, type ProductoDto } from '@hce/api-client';
-import { queryKeys } from '@hce/api-client/react';
-import { calcularLinea, calcularTotales, formatPEN, precioVentaDesdeCosto, uuidv4 } from '@hce/domain';
-import { Alert, Button, Card, EmptyState, Money, ProductoPicker, Totales, useToast } from '@hce/ui';
-import { compraFormSchema, type CompraFormValues } from './schema';
+import type { CompraDetalleDto, ProductoDto } from '@hce/api-client';
+import { Can, usePermiso } from '@hce/api-client/react';
+import { formatPEN, IGV_RATE } from '@hce/domain';
+import { ApiErrorNotice, errorMessage, ProductoPicker, useLineTotals, useSuccessFlash } from '@hce/features';
+import {
+  Alert,
+  Button,
+  Card,
+  DocumentFooter,
+  EmptyState,
+  Kbd,
+  LineItemsTable,
+  useModifierKeyLabel,
+  useToast,
+  WIDE_ONLY,
+} from '@hce/ui';
+import { CompraLineRow } from './CompraLineRow';
 import { ProductoFormModal } from './ProductoFormModal';
+import { compraFormSchema, type CompraFormValues } from './schema';
+import { useRegistrarCompra } from './useRegistrarCompra';
 
-/**
- * Registro de compra (PDF 1.2.1): varias líneas, alta de producto en modal,
- * totales en vivo. El backend registra CompraCab/CompraDet, actualiza costo y
- * precio de venta (costo × 1.35) y genera el movimiento de ENTRADA en una sola transacción.
- */
+const COLUMNS = [
+  { key: 'producto', header: 'Producto' },
+  { key: 'cantidad', header: 'Cantidad', align: 'right' as const },
+  { key: 'costo', header: 'Costo unitario', align: 'right' as const },
+  { key: 'pv', header: 'Precio de venta nuevo', align: 'right' as const },
+  { key: 'sub', header: 'Subtotal', align: 'right' as const, className: WIDE_ONLY },
+  {
+    key: 'igv',
+    header: `IGV ${Math.round(IGV_RATE * 100)} %`,
+    align: 'right' as const,
+    className: WIDE_ONLY,
+  },
+  { key: 'total', header: 'Total', align: 'right' as const },
+  { key: 'quitar', header: <span className="sr-only">Quitar</span> },
+];
+
 export function CompraForm() {
-  const qc = useQueryClient();
   const toast = useToast();
+  const mod = useModifierKeyLabel();
   const [modalOpen, setModalOpen] = useState(false);
+  const puedeRegistrarProducto = usePermiso('productos.registrar');
   const [ultima, setUltima] = useState<CompraDetalleDto | null>(null);
-  // Idempotency-Key estable por intento: si la red falla y el usuario reintenta,
-  // el backend no duplica la compra. Se renueva solo tras un registro exitoso.
-  const idempotencyKey = useRef<string>(uuidv4());
+  const [success, flashSuccess] = useSuccessFlash();
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const [nuevaLinea, setNuevaLinea] = useState<number | null>(null);
 
   const form = useForm<CompraFormValues>({
     resolver: zodResolver(compraFormSchema),
     defaultValues: { items: [] },
     mode: 'onTouched',
   });
-  const { fields, append, remove } = useFieldArray({ control: form.control, name: 'items', keyName: 'key' });
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: 'items',
+    keyName: 'key',
+  });
   const items = useWatch({ control: form.control, name: 'items' });
-
-  const lineas = useMemo(
-    () => (items ?? []).map((i) => calcularLinea(Number(i?.cantidad), Number(i?.costoUnitario))),
-    [items],
+  const { lineas, totales } = useLineTotals(
+    items,
+    (i) => i?.cantidad,
+    (i) => i?.costoUnitario,
   );
-  const totales = useMemo(() => calcularTotales(lineas), [lineas]);
 
-  const mutation = useMutation({
-    mutationFn: (values: CompraFormValues) =>
-      api.compras.registrar(
-        { items: values.items.map(({ productoId, cantidad, costoUnitario }) => ({ productoId, cantidad, costoUnitario })) },
-        idempotencyKey.current,
-      ),
-    onSuccess: async (compra) => {
-      idempotencyKey.current = uuidv4();
+  const registrar = useRegistrarCompra({
+    onSuccess: (compra) => {
       setUltima(compra);
+      flashSuccess();
       form.reset({ items: [] });
-      toast.success(`Compra N.º ${compra.id} registrada`, `Total ${formatPEN(compra.total)}`);
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: queryKeys.compras.all }),
-        qc.invalidateQueries({ queryKey: queryKeys.productos.all }),
-        qc.invalidateQueries({ queryKey: queryKeys.kardex.all }),
-      ]);
+      toast.success(
+        `Compra N.º ${compra.id} registrada`,
+        `Total ${formatPEN(compra.total)}. Stock y precios actualizados.`,
+      );
     },
-    onError: (e) => toast.error('No se registró la compra', ApiError.from(e).message),
+    onError: (e) => toast.error('La compra no se registró', errorMessage(e)),
   });
 
   const agregar = (p: ProductoDto) => {
     setUltima(null);
-    append({ productoId: p.id, nombre: p.nombre, nroLote: p.nroLote, cantidad: 1, costoUnitario: p.costo > 0 ? p.costo : Number.NaN });
+    append({
+      productoId: p.id,
+      nombre: p.nombre,
+      nroLote: p.nroLote,
+      cantidad: 1,
+      costoUnitario: p.costo > 0 ? p.costo : Number.NaN,
+    });
+    setNuevaLinea(p.id);
   };
 
-  const apiError = mutation.error ? ApiError.from(mutation.error) : null;
-  const itemsError = form.formState.errors.items;
-  const listError = itemsError?.message ?? itemsError?.root?.message;
+  const onEnter = (index: number) => (field: 'cantidad' | 'costoUnitario', e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (field === 'cantidad')
+      return form.setFocus(`items.${index}.costoUnitario`, {
+        shouldSelect: true,
+      });
+    if (index < fields.length - 1)
+      return form.setFocus(`items.${index + 1}.cantidad`, {
+        shouldSelect: true,
+      });
+    submitRef.current?.focus();
+  };
+
+  const listError = form.formState.errors.items?.message ?? form.formState.errors.items?.root?.message;
 
   return (
     <>
-      <form noValidate onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="flex flex-col gap-5">
+      <form noValidate onSubmit={form.handleSubmit((v) => registrar.mutate(v))} className="flex flex-col gap-5">
         <Card
           title="Productos de la compra"
           actions={
-            <Button variant="secondary" onClick={() => setModalOpen(true)}>
-              + Registrar producto
-            </Button>
+            <Can permiso="productos.registrar">
+              <Button variant="secondary" onClick={() => setModalOpen(true)}>
+                Registrar producto nuevo
+              </Button>
+            </Can>
           }
         >
           <div className="flex flex-col gap-4">
-            <ProductoPicker mode="compra" onSelect={agregar} excludeIds={fields.map((f) => f.productoId)} label="Agregar producto existente" />
-            <p className="text-xs text-muted">
-              ¿No existe el producto? Usa <strong>Registrar producto</strong>. Al guardar, el costo del producto se actualiza y su precio de venta pasa a ser <strong>costo × 1.35</strong>.
+            <ProductoPicker
+              mode="compra"
+              label="Agregar producto"
+              hotkey
+              excludeIds={fields.map((f) => f.productoId)}
+              onSelect={agregar}
+            />
+            <p className="hidden items-center gap-1.5 text-sm text-muted sm:flex">
+              Busca con <Kbd>{mod}</Kbd>
+              <Kbd>K</Kbd>, elige con <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd> y <Kbd>Enter</Kbd>. Con <Kbd>Enter</Kbd> pasas de un campo al siguiente.
             </p>
 
             {fields.length === 0 ? (
-              <EmptyState title="Aún no hay productos" description="Busca un producto o registra uno nuevo para comenzar." />
+              <EmptyState
+                title="Agrega el primer producto"
+                description={
+                  puedeRegistrarProducto
+                    ? 'Busca por nombre o lote. Si el producto aún no existe, usa «Registrar producto nuevo».'
+                    : 'Busca por nombre o lote. Para dar de alta un producto nuevo, pide el permiso a un administrador.'
+                }
+              />
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-line">
-                <table className="w-full min-w-[720px] text-sm">
-                  <caption className="sr-only">Líneas de la compra</caption>
-                  <thead className="bg-canvas text-xs uppercase tracking-wide text-muted">
-                    <tr>
-                      <th scope="col" className="px-3 py-2 text-left">Producto</th>
-                      <th scope="col" className="w-28 px-3 py-2 text-right">Cantidad</th>
-                      <th scope="col" className="w-36 px-3 py-2 text-right">Costo unit.</th>
-                      <th scope="col" className="px-3 py-2 text-right">Subtotal</th>
-                      <th scope="col" className="px-3 py-2 text-right">IGV</th>
-                      <th scope="col" className="px-3 py-2 text-right">Total</th>
-                      <th scope="col" className="w-12 px-3 py-2"><span className="sr-only">Quitar</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fields.map((field, idx) => {
-                      const errs = form.formState.errors.items?.[idx];
-                      const linea = lineas[idx] ?? { subTotal: 0, igv: 0, total: 0 };
-                      const costo = Number(items?.[idx]?.costoUnitario);
-                      return (
-                        <tr key={field.key} className="border-t border-line align-top">
-                          <td className="px-3 py-2">
-                            <p className="font-medium text-ink">{field.nombre}</p>
-                            <p className="text-xs text-muted">
-                              Lote {field.nroLote} · P. venta nuevo: {Number.isFinite(costo) ? formatPEN(precioVentaDesdeCosto(costo)) : '—'}
-                            </p>
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min={1}
-                              step={1}
-                              aria-label={`Cantidad de ${field.nombre}`}
-                              aria-invalid={errs?.cantidad ? true : undefined}
-                              className="h-10 w-full rounded-lg border border-line px-2 text-right aria-[invalid=true]:border-danger"
-                              {...form.register(`items.${idx}.cantidad`, { valueAsNumber: true })}
-                            />
-                            {errs?.cantidad && <p role="alert" className="mt-1 text-xs text-danger">{errs.cantidad.message}</p>}
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min={0.01}
-                              step="0.01"
-                              aria-label={`Costo unitario de ${field.nombre}`}
-                              aria-invalid={errs?.costoUnitario ? true : undefined}
-                              className="h-10 w-full rounded-lg border border-line px-2 text-right aria-[invalid=true]:border-danger"
-                              {...form.register(`items.${idx}.costoUnitario`, { valueAsNumber: true })}
-                            />
-                            {errs?.costoUnitario && <p role="alert" className="mt-1 text-xs text-danger">{errs.costoUnitario.message}</p>}
-                          </td>
-                          <td className="px-3 py-2 text-right"><Money value={linea.subTotal} /></td>
-                          <td className="px-3 py-2 text-right"><Money value={linea.igv} /></td>
-                          <td className="px-3 py-2 text-right font-semibold"><Money value={linea.total} /></td>
-                          <td className="px-3 py-2 text-right">
-                            <button type="button" onClick={() => remove(idx)} aria-label={`Quitar ${field.nombre}`} className="h-10 w-10 rounded-lg text-danger hover:bg-danger-bg">
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <LineItemsTable caption="Productos de la compra" columns={COLUMNS}>
+                {fields.map((field, idx) => (
+                  <CompraLineRow
+                    key={field.key}
+                    autoFocus={field.productoId === nuevaLinea}
+                    index={idx}
+                    nombre={field.nombre}
+                    nroLote={field.nroLote}
+                    costo={Number(items?.[idx]?.costoUnitario)}
+                    linea={lineas[idx] ?? { subTotal: 0, igv: 0, total: 0 }}
+                    register={form.register}
+                    errors={form.formState.errors.items}
+                    onRemove={() => remove(idx)}
+                    onEnter={onEnter(idx)}
+                  />
+                ))}
+              </LineItemsTable>
             )}
             {listError && <Alert title={listError} />}
           </div>
         </Card>
 
-        {apiError && (
-          <Alert title="No se pudo registrar la compra">
-            <p>{apiError.message}</p>
-            {apiError.errors.length > 0 && (
-              <ul className="mt-1 list-disc pl-5">
-                {apiError.errors.map((e, i) => (
-                  <li key={i}>{e.field ? `${e.field}: ` : ''}{e.message}</li>
-                ))}
-              </ul>
-            )}
-            {apiError.requestId && <p className="mt-1 text-xs opacity-70">Ref: {apiError.requestId}</p>}
-          </Alert>
-        )}
+        <ApiErrorNotice error={registrar.error} title="La compra no se registró" />
         {ultima && (
-          <Alert tone="ok" title={`Compra N.º ${ultima.id} registrada correctamente`}>
-            {ultima.cantidadItems} ítem(s) · Total {formatPEN(ultima.total)}. Se generó el movimiento de ENTRADA en el kardex.
+          <Alert tone="ok" title={`Compra N.º ${ultima.id} registrada`}>
+            {ultima.cantidadItems} {ultima.cantidadItems === 1 ? 'producto' : 'productos'} por {formatPEN(ultima.total)}
+            . El kardex ya muestra la entrada.
           </Alert>
         )}
 
-        <div className="flex flex-col-reverse gap-4 rounded-card border border-line bg-surface p-5 shadow-card md:flex-row md:items-end md:justify-between">
-          <Button type="submit" size="lg" loading={mutation.isPending} disabled={fields.length === 0} className="md:w-60">
-            Registrar compra
-          </Button>
-          <Totales {...totales} />
-        </div>
+        <DocumentFooter
+          submitRef={submitRef}
+          submitLabel="Registrar compra"
+          loading={registrar.isPending}
+          success={success}
+          disabled={fields.length === 0}
+          totales={totales}
+          note="Al registrar, el costo de cada producto se actualiza y su precio de venta pasa a ser costo × 1.35."
+        />
       </form>
 
-      <ProductoFormModal open={modalOpen} onClose={() => setModalOpen(false)} onCreated={agregar} />
+      <ProductoFormModal
+        open={modalOpen && puedeRegistrarProducto}
+        onClose={() => setModalOpen(false)}
+        onCreated={agregar}
+      />
     </>
   );
 }

@@ -10,4 +10,5 @@ export interface MssqlModuleOptions {
   poolMin: number;
   requestTimeoutMs: number;
   appName: string;
+  caFile?: string;
 }

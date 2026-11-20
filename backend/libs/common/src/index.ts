@@ -1,5 +1,4 @@
 export * from './config/common.env';
-export * from './errors/app-error';
 export * from './logging/logger.options';
 export * from './metrics/metrics-server';
 export * from './mssql/mssql.constants';
@@ -8,3 +7,6 @@ export * from './mssql/mssql.module';
 export * from './mssql/mssql.options';
 export * from './nats/nats.options';
 export * from './rpc/rpc-exception.filter';
+export * from './process/process-guards';
+export * from './metrics/prometheus-operation.observer';
+export * from './composition/use-case.provider';

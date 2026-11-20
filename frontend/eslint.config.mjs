@@ -8,9 +8,7 @@ export default defineConfig([
   {
     settings: { react: { version: '19.3' } },
     rules: {
-      // App Router únicamente: la regla aplica a /pages.
       '@next/next/no-html-link-for-pages': 'off',
-      // Multi-Zones: navegar entre zonas EXIGE navegación dura (no router.push).
       '@next/next/no-location-assign-relative-destination': 'off',
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       eqeqeq: ['error', 'always'],

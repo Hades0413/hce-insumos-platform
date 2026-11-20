@@ -6,16 +6,6 @@ export interface ImportesLinea {
   readonly total: Money;
 }
 
-/**
- * Servicio de dominio con las reglas de precios del enunciado:
- *  - Precio de venta = costo × (1 + margen)  -> margen 35% => costo × 1.35
- *  - Subtotal = cantidad × precio
- *  - IGV = subtotal × 18%   (el PDF escribe "cantidad*precio*1.18"; eso sería el
- *    total con IGV, no el impuesto. Se interpreta IGV = 18% del subtotal para que
- *    Total = Subtotal + IGV sea correcto. Ver docs/ARQUITECTURA.md.)
- *  - Total = subtotal + IGV
- * Tasas en puntos básicos y configurables por entorno (IGV_RATE, MARGEN_VENTA).
- */
 export class PoliticaPrecios {
   constructor(
     readonly igvBasisPoints: number,

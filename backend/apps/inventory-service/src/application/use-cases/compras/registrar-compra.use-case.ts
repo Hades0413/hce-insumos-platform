@@ -1,17 +1,12 @@
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { CompraDetalleDto, ErrorCode, RegistrarCompraRequest, RequestContext } from '@hce/contracts';
 import { Compra } from '../../../domain/compra/compra';
 import { CompraRepository } from '../../../domain/compra/compra.repository.port';
 import { ProductoRepository } from '../../../domain/producto/producto.repository.port';
 import { PoliticaPrecios } from '../../../domain/shared/politica-precios';
-import { UseCase } from '../../ports/use-case';
-import { hashItems, validarIdempotencyKey } from '../../request-hash';
+import { UseCase } from '@hce/core';
+import { hashItems, resolverReintento, validarIdempotencyKey } from '../../request-hash';
 
-/**
- * Registrar Compra (requisito 1.2.1):
- * CompraCab + CompraDet, actualiza costo y precio de venta (costo × 1.35) y
- * genera el movimiento de ENTRADA — todo atómico en una transacción.
- */
 export class RegistrarCompraUseCase implements UseCase<RegistrarCompraRequest, CompraDetalleDto> {
   constructor(
     private readonly productos: ProductoRepository,
@@ -21,6 +16,10 @@ export class RegistrarCompraUseCase implements UseCase<RegistrarCompraRequest, C
 
   async execute(input: RegistrarCompraRequest, ctx: RequestContext): Promise<CompraDetalleDto> {
     const idempotencyKey = validarIdempotencyKey(input.idempotencyKey);
+    const requestHash = hashItems(Array.isArray(input.items) ? input.items : [], ctx.userId);
+    const previo = resolverReintento(await this.compras.buscarPorIdempotencia(idempotencyKey), requestHash);
+    if (previo !== null) return this.leer(previo);
+
     const compra = Compra.registrar(input.items, this.politica);
 
     const existentes = await this.productos.obtenerPorIds(compra.productoIds);
@@ -40,12 +39,12 @@ export class RegistrarCompraUseCase implements UseCase<RegistrarCompraRequest, C
       );
     }
 
-    const resultado = await this.compras.registrar(
-      compra,
-      { idempotencyKey, requestHash: hashItems(input.items) },
-      ctx,
-    );
-    const detalle = await this.compras.obtener(resultado.id);
+    const resultado = await this.compras.registrar(compra, { idempotencyKey, requestHash }, ctx);
+    return this.leer(resultado.id);
+  }
+
+  private async leer(id: number): Promise<CompraDetalleDto> {
+    const detalle = await this.compras.obtener(id);
     if (!detalle) throw new AppError(ErrorCode.INTERNAL_ERROR, 'La compra registrada no pudo leerse.');
     return detalle;
   }

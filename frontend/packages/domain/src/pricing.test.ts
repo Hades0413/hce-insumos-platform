@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { formatPEN, toCents } from './money';
 import { calcularLinea, calcularTotales, precioVentaDesdeCosto } from './pricing';
 import { safeNextPath } from './navigation';
-import { navParaRol, tienePermiso } from './roles';
 
 describe('money', () => {
   it('convierte a céntimos sin error binario', () => {
@@ -18,26 +17,41 @@ describe('money', () => {
 
 describe('calcularLinea', () => {
   it('subtotal = cantidad × precio; IGV 18%; total = subtotal + igv', () => {
-    expect(calcularLinea(3, 10.5)).toEqual({ subTotal: 31.5, igv: 5.67, total: 37.17 });
+    expect(calcularLinea(3, 10.5)).toEqual({
+      subTotal: 31.5,
+      igv: 5.67,
+      total: 37.17,
+    });
   });
   it('redondea el IGV half-up a 2 decimales', () => {
-    // 0.25 * 0.18 = 0.045 -> 0.05
-    expect(calcularLinea(1, 0.25)).toEqual({ subTotal: 0.25, igv: 0.05, total: 0.3 });
+    expect(calcularLinea(1, 0.25)).toEqual({
+      subTotal: 0.25,
+      igv: 0.05,
+      total: 0.3,
+    });
   });
   it('entradas inválidas producen ceros', () => {
-    expect(calcularLinea(Number.NaN, 10)).toEqual({ subTotal: 0, igv: 0, total: 0 });
+    expect(calcularLinea(Number.NaN, 10)).toEqual({
+      subTotal: 0,
+      igv: 0,
+      total: 0,
+    });
     expect(calcularLinea(0, 10)).toEqual({ subTotal: 0, igv: 0, total: 0 });
   });
   it('totales sin acumular errores de coma flotante', () => {
     const lineas = Array.from({ length: 10 }, () => calcularLinea(1, 0.1));
-    expect(calcularTotales(lineas)).toEqual({ subTotal: 1, igv: 0.2, total: 1.2 });
+    expect(calcularTotales(lineas)).toEqual({
+      subTotal: 1,
+      igv: 0.2,
+      total: 1.2,
+    });
   });
 });
 
 describe('precioVentaDesdeCosto', () => {
   it('aplica costo × 1.35 redondeado', () => {
     expect(precioVentaDesdeCosto(10)).toBe(13.5);
-    expect(precioVentaDesdeCosto(3.33)).toBe(4.5); // 4.4955 -> 4.50
+    expect(precioVentaDesdeCosto(3.33)).toBe(4.5);
     expect(precioVentaDesdeCosto(-1)).toBe(0);
   });
 });
@@ -52,13 +66,5 @@ describe('safeNextPath', () => {
     [null, '/'],
   ])('%s -> %s', (input, expected) => {
     expect(safeNextPath(input)).toBe(expected);
-  });
-});
-
-describe('roles', () => {
-  it('ALMACENERO no registra ventas; FARMACEUTICO sí', () => {
-    expect(tienePermiso('ALMACENERO', 'ventas:registrar')).toBe(false);
-    expect(tienePermiso('FARMACEUTICO', 'ventas:registrar')).toBe(true);
-    expect(navParaRol('FARMACEUTICO').map((n) => n.key)).toEqual(['inicio', 'ventas', 'kardex']);
   });
 });

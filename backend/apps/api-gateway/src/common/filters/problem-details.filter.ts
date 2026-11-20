@@ -1,10 +1,11 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { ERROR_HTTP_STATUS, ErrorCode, ErrorDetail } from '@hce/contracts';
 import type { Response } from 'express';
 import { STATUS_CODES } from 'node:http';
 import { GatewayRequest } from '../security/authenticated-user';
+import { recordSecurityEvent } from '../security/security-events';
 
 export interface ProblemDetails {
   type: string;
@@ -25,19 +26,20 @@ const FALLBACK_CODES: Record<number, ErrorCode> = {
   409: ErrorCode.CONFLICT,
   413: ErrorCode.VALIDATION_ERROR,
   415: ErrorCode.VALIDATION_ERROR,
+  405: ErrorCode.VALIDATION_ERROR,
   422: ErrorCode.BUSINESS_RULE,
   429: ErrorCode.RATE_LIMITED,
 };
 
-/**
- * Un ÚNICO formato de error para toda la API: RFC 7807 problem+json.
- * Los 5xx nunca exponen stack ni mensajes internos (OWASP A05/A09).
- */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
   private readonly logger = new Logger(ProblemDetailsFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    if (host.getType() !== 'http') {
+      this.logger.error({ err: exception instanceof Error ? exception.message : exception }, 'Error en evento interno');
+      return;
+    }
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<GatewayRequest>();
@@ -49,6 +51,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         'Error de servidor',
       );
     }
+    recordSecurityEvent(String(problem.code), problem.status, req);
     if (problem.status === 429) res.setHeader('Retry-After', '60');
     res.status(problem.status).type('application/problem+json').json(problem);
   }

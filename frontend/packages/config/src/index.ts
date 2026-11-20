@@ -3,7 +3,6 @@ import { NextResponse, type NextRequest } from 'next/server';
 export const ACCESS_COOKIE = 'hce_at';
 export const REFRESH_COOKIE = 'hce_rt';
 
-/** Origen del gateway para `connect-src` (inyectado en build). */
 const API_ORIGIN = (() => {
   try {
     return new URL(process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1').origin;
@@ -12,14 +11,12 @@ const API_ORIGIN = (() => {
   }
 })();
 
-/** CSP estricta basada en nonce (sin 'unsafe-inline' para scripts). */
 export function buildCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV === 'development';
   return [
     `default-src 'self'`,
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? ` 'unsafe-eval'` : ''}`,
-    // Estilos: Tailwind compila a archivos .css; 'unsafe-inline' solo para atributos style de React.
-    `style-src 'self' 'unsafe-inline'`,
+    isDev ? `style-src 'self' 'unsafe-inline'` : `style-src 'self' 'nonce-${nonce}'`,
     `img-src 'self' blob: data:`,
     `font-src 'self'`,
     `connect-src 'self' ${API_ORIGIN}${isDev ? ' ws: wss:' : ''}`.trim(),
@@ -27,39 +24,27 @@ export function buildCsp(nonce: string): string {
     `base-uri 'self'`,
     `form-action 'self'`,
     `frame-ancestors 'none'`,
-    // Solo cuando todo el ecosistema corre en HTTPS (no rompe el despliegue local http).
     ...(!isDev && API_ORIGIN.startsWith('https://') ? ['upgrade-insecure-requests'] : []),
   ].join('; ');
 }
 
 export interface AuthProxyOptions {
-  /** Rutas (sin basePath) accesibles sin sesión. */
   publicPaths?: ReadonlyArray<string>;
 }
 
-/**
- * Origen público (el del shell) para construir redirecciones absolutas.
- * Prioridad: `APP_PUBLIC_URL` (configurado por despliegue, no manipulable por el cliente);
- * si no existe, el host reenviado por el shell en Multi-Zones (`x-forwarded-host`) o `host`.
- */
 function publicOrigin(request: NextRequest): string {
   const configured = process.env.APP_PUBLIC_URL;
   if (configured) return configured.replace(/\/+$/, '');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('APP_PUBLIC_URL es obligatoria en producción (origen público del shell).');
+  }
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host;
-  const proto = (request.headers.get('x-forwarded-proto') ?? request.nextUrl.protocol.replace(':', '')).split(',')[0]!.trim();
+  const proto = (request.headers.get('x-forwarded-proto') ?? request.nextUrl.protocol.replace(':', ''))
+    .split(',')[0]!
+    .trim();
   return `${proto}://${host.split(',')[0]!.trim()}`;
 }
 
-/**
- * Proxy (antes "middleware") común:
- *  1. CSP con nonce por request.
- *  2. Redirección a /login si no hay cookie de sesión (UX). La autorización
- *     REAL la hace el gateway verificando el JWT; esto solo evita mostrar
- *     pantallas vacías.
- *
- * En Multi-Zones la zona responde detrás del shell: la redirección usa el origen
- * PÚBLICO (shell), nunca el host interno del contenedor de la zona.
- */
 export function createAuthProxy(options: AuthProxyOptions = {}) {
   const publicPaths = options.publicPaths ?? [];
   return function proxy(request: NextRequest): NextResponse {
@@ -79,7 +64,9 @@ export function createAuthProxy(options: AuthProxyOptions = {}) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set('x-nonce', nonce);
     requestHeaders.set('Content-Security-Policy', csp);
-    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    const response = NextResponse.next({
+      request: { headers: requestHeaders },
+    });
     response.headers.set('Content-Security-Policy', csp);
     return response;
   };

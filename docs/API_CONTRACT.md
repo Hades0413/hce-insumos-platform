@@ -1,20 +1,21 @@
-# Contrato de API — HCE Insumos
+# Contrato de API: HCE Insumos
 
-Fuente única de verdad entre FrontEnd (Next.js) y BackEnd (API Gateway NestJS).
-Swagger en vivo: `http://localhost:4000/api/docs` (solo en `NODE_ENV != production`).
+Contrato entre el frontend (Next.js) y el API Gateway (NestJS). La versión interactiva está en Swagger:
+`http://localhost:4000/api/docs` (activo solo fuera de producción).
 
-- **Base URL**: `http://localhost:4000/api/v1` (env `NEXT_PUBLIC_API_URL`).
-- **Formato**: JSON `camelCase`. Fechas ISO-8601 UTC. Montos `number` con 2 decimales.
-- **Autenticación**: cookies **HttpOnly** emitidas por el gateway. El navegador las envía solo
-  (`withCredentials: true`). El JS del front **nunca** ve el JWT.
-  - `hce_at`  — access token JWT (ES256), **30 min**, `Path=/`, `SameSite=Strict`, `HttpOnly`, `Secure` en prod.
-  - `hce_rt`  — refresh token opaco (rotación + detección de reuso), 8 h, `Path=/api/v1/auth`.
-  - `hce_csrf` — secreto CSRF HttpOnly (double-submit). El valor público se obtiene con `GET /auth/csrf`
-    y se manda en el header **`X-CSRF-Token`** en todo `POST/PUT/PATCH/DELETE`.
-- **Headers de cliente**: `X-Request-Id` (uuid, opcional, se propaga a logs), `Idempotency-Key` (uuid v4,
-  **obligatorio** en `POST /compras` y `POST /ventas` — reintentos seguros, evita doble registro).
+- **URL base:** `http://localhost:4000/api/v1` (variable `NEXT_PUBLIC_API_URL`).
+- **Formato:** JSON en `camelCase`, fechas ISO-8601 en UTC y montos con 2 decimales.
+- **Autenticación:** el gateway emite cookies HttpOnly y el navegador las envía solo (`withCredentials: true`).
+  El código del front nunca ve el JWT.
+  - `hce_at`: access token JWT (ES256), 30 min, `Path=/`.
+  - `hce_rt`: refresh token, 8 h, cambia en cada uso, `Path=/api/v1/auth`.
+  - `hce_csrf`: secreto CSRF. El valor para el header se pide con `GET /auth/csrf` y se envía en `X-CSRF-Token`
+    en todo `POST`, `PUT`, `PATCH` y `DELETE`.
+  - Todas con `HttpOnly`, `SameSite=Strict` y `Secure` en producción.
+- **Headers del cliente:** `X-Request-Id` (opcional, aparece en los logs) e `Idempotency-Key` (UUID v4,
+  obligatorio en `POST /compras` y `POST /ventas` para que un reintento no duplique el documento).
 
-## Errores — RFC 7807 (`application/problem+json`)
+## Errores (RFC 7807, `application/problem+json`)
 
 ```json
 {
@@ -28,31 +29,39 @@ Swagger en vivo: `http://localhost:4000/api/docs` (solo en `NODE_ENV != producti
 }
 ```
 
-| status | code                     | Cuándo |
-|-------:|--------------------------|--------|
-| 400    | `VALIDATION_ERROR`       | Body/query inválido (`errors[]` con `field`) |
-| 401    | `UNAUTHENTICATED`        | Sin cookie / token vencido → el interceptor intenta `POST /auth/refresh` 1 vez |
-| 403    | `FORBIDDEN`              | Rol sin permiso |
-| 403    | `CSRF_INVALID`           | Falta/no coincide `X-CSRF-Token` → el interceptor pide `/auth/csrf` y reintenta 1 vez |
-| 404    | `NOT_FOUND`              | Recurso inexistente |
-| 409    | `CONFLICT` / `CONCURRENCY_CONFLICT` / `DUPLICATE` | Duplicado o `rowVersion` desactualizado |
-| 422    | `STOCK_INSUFICIENTE` / `BUSINESS_RULE`   | Regla de negocio |
-| 423    | `ACCOUNT_LOCKED`         | Cuenta bloqueada por intentos fallidos |
-| 429    | `RATE_LIMITED`           | Rate limit (`Retry-After`) |
-| 502/503/504 | `UPSTREAM_UNAVAILABLE` / `UPSTREAM_TIMEOUT` | Microservicio caído / lento |
+| Estado | Código | Cuándo |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Body o query inválido; `errors[]` indica el campo |
+| 401 | `UNAUTHENTICATED` | Sin cookie o token vencido. El interceptor llama a `POST /auth/refresh` una vez y reintenta |
+| 401 | `INVALID_CREDENTIALS` | Login fallido por cualquier motivo, siempre con el mismo mensaje |
+| 401 | `PERMISSIONS_CHANGED` | Cambiaron los permisos del usuario; el interceptor renueva el token y reintenta |
+| 403 | `FORBIDDEN` | El usuario no tiene el permiso |
+| 403 | `CSRF_INVALID` | Falta `X-CSRF-Token` o no coincide. El interceptor pide `/auth/csrf` y reintenta una vez |
+| 404 | `NOT_FOUND` | El recurso no existe |
+| 409 | `CONFLICT`, `CONCURRENCY_CONFLICT`, `DUPLICATE` | Producto duplicado o `rowVersion` desactualizado |
+| 422 | `STOCK_INSUFICIENTE`, `BUSINESS_RULE` | Regla de negocio (por ejemplo, eliminar un producto con stock) |
+| 429 | `RATE_LIMITED` | Demasiadas peticiones; incluye `Retry-After` |
+| 502, 503, 504 | `UPSTREAM_UNAVAILABLE`, `UPSTREAM_TIMEOUT` | Un microservicio no responde |
 
 ## Paginación
 
-Query `page` (≥1, default 1), `pageSize` (1..100, default 20). Respuesta:
+Query `page` (desde 1, por defecto 1) y `pageSize` (1 a 100, por defecto 20). Respuesta:
 
 ```ts
 interface Paginated<T> { items: T[]; page: number; pageSize: number; total: number }
 ```
 
-## Roles
+## Permisos
 
-`ADMIN` (todo), `ALMACENERO` (productos + compras + lectura), `FARMACEUTICO` (ventas + lectura).
-Lectura (`GET`) disponible para los tres.
+Cada endpoint exige un permiso. Los roles dan estos permisos por defecto y el administrador puede conceder o
+quitar permisos a un usuario concreto.
+
+| Permiso | ADMIN | ALMACENERO | FARMACEUTICO |
+|---|:-:|:-:|:-:|
+| `productos.ver`, `compras.ver`, `ventas.ver`, `kardex.ver` | sí | sí | sí |
+| `productos.registrar`, `productos.editar`, `compras.registrar` | sí | sí | no |
+| `ventas.registrar` | sí | no | sí |
+| `productos.eliminar`, `productos.precio_manual`, `seguridad.administrar` | sí | no | no |
 
 ---
 
@@ -60,27 +69,27 @@ Lectura (`GET`) disponible para los tres.
 
 | Método | Ruta | Body | Respuesta |
 |---|---|---|---|
-| GET  | `/auth/csrf` | — | `200 { csrfToken: string }` (+ cookie `hce_csrf`) |
-| POST | `/auth/login` | `{ email, password }` | `200 SessionDto` (+ cookies `hce_at`, `hce_rt`). Rate limit 5/min/IP |
-| POST | `/auth/refresh` | — | `200 SessionDto` (rota cookies) · `401` si inválido |
-| POST | `/auth/logout` | — | `204` (revoca refresh y limpia cookies) |
-| GET  | `/auth/me` | — | `200 SessionDto` |
+| GET  | `/auth/csrf` | - | `200 { csrfToken: string }` (+ cookie `hce_csrf`) |
+| POST | `/auth/login` | `{ email, password }` | `200 SessionDto` (+ cookies `hce_at`, `hce_rt`). Máximo 10 por minuto por IP |
+| POST | `/auth/refresh` | - | `200 SessionDto` (rota cookies), `401` si inválido |
+| POST | `/auth/logout` | - | `204` (cierra la sesión y borra las cookies) |
+| GET  | `/auth/me` | - | `200 SessionDto` |
 
 ```ts
 type Rol = 'ADMIN' | 'ALMACENERO' | 'FARMACEUTICO';
-interface UserDto { id: string; email: string; nombreCompleto: string; rol: Rol }
+interface UserDto { id: string; email: string; nombreCompleto: string; rol: Rol; permisos: Permiso[] }
 interface SessionDto { user: UserDto; accessTokenExpiresAt: string /* ISO */ }
 ```
 
 ## Productos
 
-| Método | Ruta | Rol | Body / Query | Respuesta |
+| Método | Ruta | Permiso | Body / Query | Respuesta |
 |---|---|---|---|---|
-| GET    | `/productos` | todos | `?search=&page=&pageSize=` | `Paginated<ProductoDto>` |
-| GET    | `/productos/:id` | todos | — | `ProductoDto` |
-| POST   | `/productos` | ADMIN, ALMACENERO | `CrearProductoDto` | `201 ProductoDto` |
-| PUT    | `/productos/:id` | ADMIN, ALMACENERO | `ActualizarProductoDto` | `200 ProductoDto` |
-| DELETE | `/productos/:id` | ADMIN | — | `204` · `409` si tiene movimientos |
+| GET    | `/productos` | `productos.ver` | `?search=&page=&pageSize=` | `Paginated<ProductoDto>` |
+| GET    | `/productos/:id` | `productos.ver` | - | `ProductoDto` |
+| POST   | `/productos` | `productos.registrar` | `CrearProductoDto` | `201 ProductoDto` |
+| PUT    | `/productos/:id` | `productos.editar` | `ActualizarProductoDto` | `200 ProductoDto` |
+| DELETE | `/productos/:id` | `productos.eliminar` | - | `204`; `422` si el producto tiene stock |
 
 ```ts
 interface ProductoDto {
@@ -88,20 +97,24 @@ interface ProductoDto {
   costo: number; precioVenta: number; stock: number; rowVersion: string /* base64 */;
 }
 interface CrearProductoDto { nombre: string /*2..150*/; nroLote: string /*1..50, [A-Za-z0-9-_/.]*/; costo?: number /*>=0, default 0*/ }
-// precioVenta = round(costo * 1.35, 2) si no se envía
+// precioVenta = round(costo * 1.35, 2); en ActualizarProductoDto solo se acepta con productos.precio_manual
 interface ActualizarProductoDto { nombre: string; nroLote: string; costo: number; precioVenta?: number; rowVersion: string }
 ```
 
+El `DELETE` es una eliminación lógica: el producto queda con `Activo = 0`, fecha y usuario, y deja de aparecer en
+listados y documentos nuevos. Sus compras, ventas y movimientos se conservan.
+
 ## Compras (movimiento ENTRADA)
 
-| Método | Ruta | Rol | Body / Query | Respuesta |
+| Método | Ruta | Permiso | Body / Query | Respuesta |
 |---|---|---|---|---|
-| POST | `/compras` | ADMIN, ALMACENERO | `RegistrarCompraDto` + header `Idempotency-Key` | `201 CompraDetalleDto` |
-| GET  | `/compras` | todos | `?page&pageSize&desde=YYYY-MM-DD&hasta=YYYY-MM-DD` | `Paginated<DocumentoResumenDto>` |
-| GET  | `/compras/:id` | todos | — | `CompraDetalleDto` |
+| POST | `/compras` | `compras.registrar` | `RegistrarCompraDto` + header `Idempotency-Key` | `201 CompraDetalleDto` |
+| GET  | `/compras` | `compras.ver` | `?page&pageSize&desde=YYYY-MM-DD&hasta=YYYY-MM-DD` | `Paginated<DocumentoResumenDto>` |
+| GET  | `/compras/:id` | `compras.ver` | - | `CompraDetalleDto` |
 
-Efectos (atómicos, en un solo SP/transacción): `CompraCab` + `CompraDet`, actualiza `Productos.Costo = costoUnitario`
-y `Productos.PrecioVenta = round(costo * 1.35, 2)`, crea `MovimientoCab(Id_TipoMovimiento=1, Id_DocumentoOrigen=Id_CompraCab)` + `MovimientoDet`.
+En una sola transacción se guardan `CompraCab` y `CompraDet`, se actualiza el costo del producto
+(`costoUnitario`) y su precio de venta (`round(costo * 1.35, 2)`), y se crea el movimiento de entrada
+(`MovimientoCab` con `Id_TipoMovimiento = 1` e `Id_DocumentoOrigen = Id_CompraCab`, más `MovimientoDet`).
 
 ```ts
 interface RegistrarCompraDto { items: { productoId: number; cantidad: number /*int 1..100000*/; costoUnitario: number /*>0*/ }[] /*1..100, productoId únicos*/ }
@@ -115,15 +128,16 @@ interface CompraDetalleDto extends DocumentoResumenDto { detalles: DocumentoLine
 
 ## Ventas (movimiento SALIDA)
 
-| Método | Ruta | Rol | Body / Query | Respuesta |
+| Método | Ruta | Permiso | Body / Query | Respuesta |
 |---|---|---|---|---|
-| POST | `/ventas` | ADMIN, FARMACEUTICO | `RegistrarVentaDto` + header `Idempotency-Key` | `201 VentaDetalleDto` · `422 STOCK_INSUFICIENTE` |
-| GET  | `/ventas` | todos | `?page&pageSize&desde&hasta` | `Paginated<DocumentoResumenDto>` |
-| GET  | `/ventas/:id` | todos | — | `VentaDetalleDto` |
+| POST | `/ventas` | `ventas.registrar` | `RegistrarVentaDto` + header `Idempotency-Key` | `201 VentaDetalleDto`, `422 STOCK_INSUFICIENTE` |
+| GET  | `/ventas` | `ventas.ver` | `?page&pageSize&desde&hasta` | `Paginated<DocumentoResumenDto>` |
+| GET  | `/ventas/:id` | `ventas.ver` | - | `VentaDetalleDto` |
 
-El **precio lo decide el servidor** (`Productos.PrecioVenta` vigente) — nunca se confía en un precio del cliente.
-Cálculo por línea: `subTotal = cantidad * precioVenta`, `igv = subTotal * 0.18`, `total = subTotal + igv`.
-El stock se valida en el dominio y se **revalida bajo lock** (`UPDLOCK, HOLDLOCK`) en el SP → sin sobreventa concurrente.
+El precio lo pone el servidor con el `PrecioVenta` vigente; el cliente no lo envía.
+Por línea: `subTotal = cantidad * precioVenta`, `igv = subTotal * 0.18`, `total = subTotal + igv`.
+El stock se valida en el servicio y otra vez dentro del SP con los productos bloqueados, así dos ventas
+simultáneas no pueden dejarlo en negativo.
 
 ```ts
 interface RegistrarVentaDto { items: { productoId: number; cantidad: number }[] }
@@ -146,6 +160,22 @@ interface MovimientoDto {
 interface KardexMovimientosDto extends Paginated<MovimientoDto> { producto: KardexItemDto }
 ```
 
+Ambas rutas de kardex exigen `kardex.ver`.
+
+## Seguridad (administración)
+
+Todas exigen `seguridad.administrar`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/admin/permisos` | Catálogo de permisos |
+| GET | `/admin/roles` | Roles y sus permisos por defecto |
+| GET | `/admin/usuarios` | Usuarios |
+| GET | `/admin/usuarios/:id/permisos` | Permisos efectivos y excepciones de un usuario |
+| PUT | `/admin/usuarios/:id/excepciones/:permiso` | Concede o quita un permiso (motivo y vigencia) |
+| DELETE | `/admin/usuarios/:id/excepciones/:permiso` | Elimina la excepción |
+
 ## Salud
 
-`GET /health` (público, sin rate limit) → `{ status: 'ok'|'error', info, error, details }` (Terminus: NATS + servicios).
+`GET /health` es público y no cuenta para el límite de peticiones. Devuelve
+`{ status: 'ok' | 'error', info, error, details }` con el estado de NATS y de cada microservicio.

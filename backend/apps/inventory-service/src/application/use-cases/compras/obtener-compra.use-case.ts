@@ -1,8 +1,8 @@
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { CompraDetalleDto, IdRequest } from '@hce/contracts';
 import { CompraRepository } from '../../../domain/compra/compra.repository.port';
 import { validarId } from '../../../domain/shared/cantidad';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 
 export class ObtenerCompraUseCase implements UseCase<IdRequest, CompraDetalleDto> {
   constructor(private readonly compras: CompraRepository) {}

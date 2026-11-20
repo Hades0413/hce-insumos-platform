@@ -1,4 +1,4 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AppError } from '@hce/core';
 import { ErrorCode } from '@hce/contracts';
 import { PoliticaPrecios } from '../shared/politica-precios';
 import { Compra } from './compra';
@@ -18,6 +18,13 @@ describe('Compra (agregado)', () => {
     expect(compra.totales.igv.toDecimal()).toBe(4.86);
     expect(compra.totales.total.toDecimal()).toBe(31.86);
     expect(compra.lineas[0].nuevoPrecioVenta.toDecimal()).toBe(0.68);
+  });
+
+  it('registra el evento de dominio CompraRegistrada (una sola vez)', () => {
+    const compra = Compra.registrar([{ productoId: 1, cantidad: 2, costoUnitario: 1 }], politica);
+    const [evento] = compra.pullEvents();
+    expect(evento).toMatchObject({ type: 'CompraRegistrada', payload: { subTotal: 2, igv: 0.36, total: 2.36 } });
+    expect(compra.pullEvents()).toHaveLength(0);
   });
 
   it.each([

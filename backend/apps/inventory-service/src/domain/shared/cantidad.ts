@@ -1,8 +1,7 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AppError } from '@hce/core';
 
 export const CANTIDAD_MAXIMA_POR_LINEA = 100_000;
 
-/** Regla: cantidades enteras positivas y acotadas (evita overflow y errores de digitación). */
 export function validarCantidad(cantidad: unknown, field: string): number {
   if (
     typeof cantidad !== 'number' ||

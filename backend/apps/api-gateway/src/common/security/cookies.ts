@@ -2,6 +2,7 @@ export const COOKIE_NAMES = {
   ACCESS: 'hce_at',
   REFRESH: 'hce_rt',
   CSRF: 'hce_csrf',
+  SESSION_HINT: 'hce_session',
 } as const;
 
 export const CSRF_HEADER = 'x-csrf-token';

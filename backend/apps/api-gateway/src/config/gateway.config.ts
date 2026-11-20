@@ -15,12 +15,12 @@ export const gatewayEnvSchema = Joi.object({
   JWT_ISSUER: Joi.string().default('hce-auth-service'),
   JWT_AUDIENCE: Joi.string().default('hce-api'),
   COOKIE_SECURE: Joi.boolean().default(true),
-  COOKIE_DOMAIN: Joi.string().hostname().optional(),
   CSRF_SECRET: Joi.string().min(32).required(),
   THROTTLE_TTL_MS: Joi.number().integer().min(1000).default(60_000),
   THROTTLE_LIMIT: Joi.number().integer().min(1).default(300),
   TRUST_PROXY: Joi.alternatives(Joi.boolean(), Joi.number().integer().min(0), Joi.string()).default(false),
   SWAGGER_ENABLED: Joi.boolean().default(false),
+  SWAGGER_DEMO_PASSWORD: Joi.string().allow('').optional(),
   RPC_TIMEOUT_MS: Joi.number().integer().min(500).max(60_000).default(8_000),
   JWT_REFRESH_TTL_HOURS: Joi.number().integer().min(1).default(8),
   BODY_LIMIT: Joi.string().default('100kb'),
@@ -41,12 +41,13 @@ export interface GatewayEnv {
   JWT_ISSUER: string;
   JWT_AUDIENCE: string;
   COOKIE_SECURE: boolean;
-  COOKIE_DOMAIN?: string;
+  NATS_TLS_CA_FILE?: string;
   CSRF_SECRET: string;
   THROTTLE_TTL_MS: number;
   THROTTLE_LIMIT: number;
   TRUST_PROXY: boolean | number | string;
   SWAGGER_ENABLED: boolean;
+  SWAGGER_DEMO_PASSWORD?: string;
   RPC_TIMEOUT_MS: number;
   JWT_REFRESH_TTL_HOURS: number;
   BODY_LIMIT: string;
@@ -55,7 +56,6 @@ export interface GatewayEnv {
 export const AUTH_CLIENT = Symbol('AUTH_CLIENT');
 export const INVENTORY_CLIENT = Symbol('INVENTORY_CLIENT');
 
-/** Límites estrictos para endpoints sensibles (leídos al cargar el módulo: los decoradores son estáticos). */
 export const LOGIN_THROTTLE = { limit: Number(process.env.LOGIN_THROTTLE_LIMIT ?? 10), ttl: 60_000 };
 export const REFRESH_THROTTLE = { limit: 30, ttl: 60_000 };
 

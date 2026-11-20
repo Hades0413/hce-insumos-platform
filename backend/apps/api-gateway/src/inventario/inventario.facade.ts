@@ -24,13 +24,6 @@ import {
 import { rpc } from '../common/rpc/rpc';
 import { INVENTORY_CLIENT } from '../config/gateway.config';
 
-/**
- * Patrón FACADE: punto único y simplificado hacia el subsistema de inventario
- * (inventory-service vía NATS). Encapsula: subjects, sobre con contexto de
- * seguridad/correlación, timeouts y traducción de errores. Los controladores
- * HTTP quedan delgados y no dependen del transporte (se podría cambiar NATS
- * por gRPC/HTTP tocando solo esta clase).
- */
 @Injectable()
 export class InventarioFacade {
   private readonly timeoutMs: number;
@@ -42,7 +35,6 @@ export class InventarioFacade {
     this.timeoutMs = config.get<number>('RPC_TIMEOUT_MS', 8000);
   }
 
-  // ---------------------------------------------------------------- Productos
   listarProductos(query: SearchQuery, ctx: RequestContext): Promise<Paginated<ProductoDto>> {
     return this.send(INVENTORY_PATTERNS.PRODUCTO_LISTAR, query, ctx);
   }
@@ -63,7 +55,6 @@ export class InventarioFacade {
     await this.send(INVENTORY_PATTERNS.PRODUCTO_ELIMINAR, { id }, ctx);
   }
 
-  // ---------------------------------------------------------------- Compras
   registrarCompra(data: RegistrarCompraRequest, ctx: RequestContext): Promise<CompraDetalleDto> {
     return this.send(INVENTORY_PATTERNS.COMPRA_REGISTRAR, data, ctx);
   }
@@ -76,7 +67,6 @@ export class InventarioFacade {
     return this.send(INVENTORY_PATTERNS.COMPRA_OBTENER, { id }, ctx);
   }
 
-  // ---------------------------------------------------------------- Ventas
   registrarVenta(data: RegistrarVentaRequest, ctx: RequestContext): Promise<VentaDetalleDto> {
     return this.send(INVENTORY_PATTERNS.VENTA_REGISTRAR, data, ctx);
   }
@@ -89,7 +79,6 @@ export class InventarioFacade {
     return this.send(INVENTORY_PATTERNS.VENTA_OBTENER, { id }, ctx);
   }
 
-  // ---------------------------------------------------------------- Kardex
   listarKardex(query: SearchQuery, ctx: RequestContext): Promise<Paginated<KardexItemDto>> {
     return this.send(INVENTORY_PATTERNS.KARDEX_LISTAR, query, ctx);
   }

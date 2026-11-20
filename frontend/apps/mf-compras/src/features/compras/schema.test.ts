@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { compraFormSchema, productoFormSchema } from './schema';
 
-const linea = { productoId: 1, nombre: 'Paracetamol 500mg', nroLote: 'L-001', cantidad: 10, costoUnitario: 1.25 };
+const linea = {
+  productoId: 1,
+  nombre: 'Paracetamol 500mg',
+  nroLote: 'L-001',
+  cantidad: 10,
+  costoUnitario: 1.25,
+};
 
 describe('compraFormSchema', () => {
   it('acepta una compra válida', () => {
@@ -16,11 +22,16 @@ describe('compraFormSchema', () => {
 
   it('rechaza cantidad decimal, costo con 3 decimales y NaN', () => {
     const r = compraFormSchema.safeParse({
-      items: [{ ...linea, cantidad: 1.5, costoUnitario: 1.234 }, { ...linea, productoId: 2, cantidad: Number.NaN }],
+      items: [
+        { ...linea, cantidad: 1.5, costoUnitario: 1.234 },
+        { ...linea, productoId: 2, cantidad: Number.NaN },
+      ],
     });
     expect(r.success).toBe(false);
     const messages = r.error?.issues.map((i) => i.message);
-    expect(messages).toEqual(expect.arrayContaining(['Debe ser un número entero', 'Máximo 2 decimales', 'Ingrese la cantidad']));
+    expect(messages).toEqual(
+      expect.arrayContaining(['Debe ser un número entero', 'Máximo 2 decimales', 'Ingrese la cantidad']),
+    );
   });
 
   it('rechaza productos repetidos', () => {
@@ -31,8 +42,18 @@ describe('compraFormSchema', () => {
 
 describe('productoFormSchema', () => {
   it('normaliza espacios y valida el lote', () => {
-    const ok = productoFormSchema.parse({ nombre: '  Gasa estéril  ', nroLote: 'LT-2026/01', costo: 0 });
+    const ok = productoFormSchema.parse({
+      nombre: '  Gasa estéril  ',
+      nroLote: 'LT-2026/01',
+      costo: 0,
+    });
     expect(ok.nombre).toBe('Gasa estéril');
-    expect(productoFormSchema.safeParse({ nombre: 'Gasa', nroLote: "L1'; DROP TABLE", costo: 1 }).success).toBe(false);
+    expect(
+      productoFormSchema.safeParse({
+        nombre: 'Gasa',
+        nroLote: "L1'; DROP TABLE",
+        costo: 1,
+      }).success,
+    ).toBe(false);
   });
 });

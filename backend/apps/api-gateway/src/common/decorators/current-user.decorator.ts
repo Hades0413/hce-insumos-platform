@@ -8,9 +8,8 @@ export const CurrentUser = createParamDecorator((_: unknown, ctx: ExecutionConte
   return req.user;
 });
 
-/** Contexto que viaja a los microservicios: identidad verificada + correlación. */
 export const ReqContext = createParamDecorator((_: unknown, ctx: ExecutionContext): RequestContext => {
   const req = ctx.switchToHttp().getRequest<GatewayRequest>();
   if (!req.user) throw new UnauthorizedException();
-  return { userId: req.user.id, rol: req.user.rol, requestId: req.requestId };
+  return { userId: req.user.id, rol: req.user.rol, permisos: req.user.permisos, requestId: req.requestId };
 });

@@ -1,8 +1,10 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AggregateRoot } from '@hce/core';
+import { AppError } from '@hce/core';
 import { ErrorCode, ErrorDetail } from '@hce/contracts';
 import { Producto } from '../producto/producto';
 import { validarCantidad, validarId } from '../shared/cantidad';
 import { LineaDocumento, TotalesDocumento, totalizar, validarEstructura } from '../shared/documento';
+import { documentoRegistrado, EVENTOS_INVENTARIO } from '../shared/eventos';
 import { PoliticaPrecios } from '../shared/politica-precios';
 
 export interface ItemVenta {
@@ -29,16 +31,14 @@ export function errorStockInsuficiente(conflictos: readonly ConflictoStock[], in
   return new AppError(ErrorCode.STOCK_INSUFICIENTE, MENSAJE_STOCK_INSUFICIENTE, details);
 }
 
-/**
- * Agregado Venta. El precio SIEMPRE proviene del producto (servidor), nunca del
- * cliente. Valida el stock (basado en movimientos) antes de persistir; la base
- * de datos lo revalida bajo lock para cubrir la concurrencia.
- */
-export class Venta {
+export class Venta extends AggregateRoot {
   private constructor(
     readonly lineas: readonly LineaDocumento[],
     readonly totales: TotalesDocumento,
-  ) {}
+  ) {
+    super();
+    this.record(documentoRegistrado(EVENTOS_INVENTARIO.VENTA_REGISTRADA, lineas, totales));
+  }
 
   static registrar(
     items: readonly ItemVenta[],

@@ -1,5 +1,5 @@
 import { DocumentoResumenDto, VentaDetalleDto } from '@hce/contracts';
-import { MetadatosIdempotencia, RangoFechas } from '../compra/compra.repository.port';
+import { MetadatosIdempotencia, RangoFechas, RegistroIdempotente } from '../compra/compra.repository.port';
 import { AuditContext, Pagina, Paginacion } from '../shared/audit-context';
 import { ConflictoStock, Venta } from './venta';
 
@@ -11,6 +11,7 @@ export type ResultadoRegistroVenta =
   | { readonly tipo: 'PRECIO_CAMBIADO' };
 
 export interface VentaRepository {
+  buscarPorIdempotencia(idempotencyKey: string): Promise<RegistroIdempotente | null>;
   registrar(venta: Venta, meta: MetadatosIdempotencia, ctx: AuditContext): Promise<ResultadoRegistroVenta>;
   obtener(id: number): Promise<VentaDetalleDto | null>;
   listar(rango: RangoFechas, paginacion: Paginacion): Promise<Pagina<DocumentoResumenDto>>;

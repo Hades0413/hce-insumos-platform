@@ -19,7 +19,6 @@ export interface RangoFechasQuery extends PageQuery {
   hasta?: string;
 }
 
-/* ------------------------------------------------------------ Productos */
 export interface ProductoDto {
   id: number;
   nombre: string;
@@ -50,7 +49,6 @@ export interface IdRequest {
   id: number;
 }
 
-/* ------------------------------------------------------------ Documentos */
 export interface DocumentoResumenDto {
   id: number;
   fecRegistro: string;
@@ -89,7 +87,6 @@ export interface RegistrarVentaRequest {
   items: { productoId: number; cantidad: number }[];
 }
 
-/* ------------------------------------------------------------ Kardex */
 export interface KardexItemDto {
   productoId: number;
   nombreProducto: string;

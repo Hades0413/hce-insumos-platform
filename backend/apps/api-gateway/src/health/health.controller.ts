@@ -25,14 +25,12 @@ export class HealthController {
     private readonly inventario: InventarioFacade,
   ) {}
 
-  /** Liveness: el proceso responde (sin dependencias => no reinicia en cascada). */
   @Get('live')
   @ApiOperation({ summary: 'Liveness probe' })
   live(): { status: 'ok' } {
     return { status: 'ok' };
   }
 
-  /** Readiness: NATS + microservicios + sus bases de datos. */
   @Get()
   @HealthCheck()
   @ApiOperation({ summary: 'Readiness: auth-service, inventory-service y sus BD' })

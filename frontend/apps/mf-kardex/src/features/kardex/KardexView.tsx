@@ -1,82 +1,126 @@
 'use client';
 
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api, type KardexItemDto } from '@hce/api-client';
-import { queryKeys } from '@hce/api-client/react';
-import { Alert, Badge, Button, DataTable, Input, Money, Pagination, useDebouncedValue } from '@hce/ui';
+import { queryKeys, usePaginatedQuery } from '@hce/api-client/react';
+import { errorMessage } from '@hce/features';
+import {
+  Alert,
+  Button,
+  DataTable,
+  Input,
+  Kbd,
+  LoteStamp,
+  Money,
+  Pagination,
+  StockLevel,
+  useDebouncedValue,
+  useSearchHotkey,
+} from '@hce/ui';
 import { MovimientosModal } from './MovimientosModal';
 
 const PAGE_SIZE = 20;
 
-/** Kardex (PDF 1.2.3): stock actual derivado de la tabla de movimientos. */
+const ROW_ACTION =
+  'transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100';
+
 export function KardexView() {
   const [term, setTerm] = useState('');
-  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<KardexItemDto | null>(null);
-  const search = useDebouncedValue(term.trim(), 300);
-  const q = { search, page, pageSize: PAGE_SIZE };
+  const searchRef = useRef<HTMLInputElement>(null);
+  const search = useDebouncedValue(term.trim(), 250);
+  useSearchHotkey(() => searchRef.current?.focus());
 
-  const { data, error, isFetching } = useQuery({
-    queryKey: queryKeys.kardex.list(q),
-    queryFn: () => api.kardex.listar(q),
-    placeholderData: keepPreviousData,
+  const list = usePaginatedQuery({
+    queryKey: (page) => queryKeys.kardex.list({ search, page, pageSize: PAGE_SIZE }),
+    queryFn: (page) => api.kardex.listar({ search, page, pageSize: PAGE_SIZE }),
   });
 
   return (
     <div className="flex flex-col gap-4">
-      <Input
-        type="search"
-        label="Buscar producto"
-        placeholder="Nombre o lote…"
-        maxLength={100}
-        value={term}
-        onChange={(e) => {
-          setTerm(e.target.value);
-          setPage(1);
-        }}
-        containerClassName="max-w-md"
-      />
-      {error && <Alert title="No se pudo cargar el kardex">{error.message}</Alert>}
-      <DataTable
-        caption="Kardex de productos"
-        rows={data?.items}
-        loading={isFetching}
-        rowKey={(r) => r.productoId}
-        empty={search ? 'Sin coincidencias para la búsqueda.' : 'No hay productos registrados.'}
-        columns={[
-          { key: 'id', header: 'Id producto', cell: (r) => <span className="font-semibold">{r.productoId}</span> },
-          {
-            key: 'nombre',
-            header: 'Nombre producto',
-            cell: (r) => (
-              <>
-                <span className="font-medium">{r.nombreProducto}</span>
-                <span className="block text-xs text-muted">Lote {r.nroLote}</span>
-              </>
-            ),
-          },
-          {
-            key: 'stock',
-            header: 'Stock actual',
-            align: 'right',
-            cell: (r) => <Badge tone={r.stockActual === 0 ? 'danger' : r.stockActual < 10 ? 'warn' : 'ok'}>{r.stockActual}</Badge>,
-          },
-          { key: 'costo', header: 'Costo', align: 'right', cell: (r) => <Money value={r.costo} /> },
-          { key: 'pv', header: 'Precio venta', align: 'right', cell: (r) => <Money value={r.precioVenta} /> },
-          {
-            key: 'acc',
-            header: <span className="sr-only">Acciones</span>,
-            align: 'right',
-            cell: (r) => (
-              <Button size="sm" variant="secondary" onClick={() => setSelected(r)} aria-label={`Ver movimientos de ${r.nombreProducto}`}>
-                Ver movimientos
-              </Button>
-            ),
-          },
-        ]}
-      />
-      {data && <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />}
+      <div className="flex items-end gap-3">
+        <Input
+          ref={searchRef}
+          type="search"
+          label="Buscar producto"
+          placeholder="Nombre o lote"
+          maxLength={100}
+          value={term}
+          aria-keyshortcuts="/ Control+K Meta+K"
+          onChange={(e) => {
+            setTerm(e.target.value);
+            list.resetPage();
+          }}
+          containerClassName="w-full max-w-md"
+        />
+        <p className="mb-3 hidden items-center gap-1.5 text-sm text-muted md:flex">
+          <Kbd>/</Kbd> para buscar
+        </p>
+      </div>
+      {list.error && <Alert title="No se pudo cargar el kardex">{errorMessage(list.error)}</Alert>}
+      {!(list.error && !list.data) && (
+        <DataTable
+          caption="Kardex de productos"
+          rows={list.data?.items}
+          loading={list.isFetching}
+          rowKey={(r) => r.productoId}
+          empty={search ? 'Ningún producto coincide con la búsqueda.' : 'Aún no hay productos registrados.'}
+          columns={[
+            {
+              key: 'id',
+              header: 'Id',
+              cell: (r) => <span className="tabular-nums text-muted">{r.productoId}</span>,
+            },
+            {
+              key: 'nombre',
+              header: 'Producto',
+              cell: (r) => (
+                <span className="flex flex-col items-start gap-1">
+                  <span className="font-semibold">{r.nombreProducto}</span>
+                  <LoteStamp lote={r.nroLote} />
+                </span>
+              ),
+            },
+            {
+              key: 'stock',
+              header: 'Stock actual',
+              align: 'right',
+              cell: (r) => <StockLevel stock={r.stockActual} />,
+            },
+            {
+              key: 'costo',
+              header: 'Costo',
+              align: 'right',
+              cell: (r) => <Money value={r.costo} />,
+            },
+            {
+              key: 'pv',
+              header: 'Precio de venta',
+              align: 'right',
+              cell: (r) => <Money value={r.precioVenta} />,
+            },
+            {
+              key: 'acc',
+              header: <span className="sr-only">Acciones</span>,
+              align: 'right',
+              cell: (r) => (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className={ROW_ACTION}
+                  onClick={() => setSelected(r)}
+                  aria-label={`Ver movimientos de ${r.nombreProducto}`}
+                >
+                  Ver movimientos
+                </Button>
+              ),
+            },
+          ]}
+        />
+      )}
+      {list.data && list.data.total > 0 && (
+        <Pagination page={list.page} pageSize={PAGE_SIZE} total={list.data.total} onPageChange={list.setPage} />
+      )}
       <MovimientosModal producto={selected} onClose={() => setSelected(null)} />
     </div>
   );

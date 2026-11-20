@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import { ErrorCode, Rol } from '@hce/contracts';
+import { ErrorCode, PERMISOS, Permiso, Rol } from '@hce/contracts';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -28,11 +28,27 @@ const { configureApp } = require('../src/configure-app') as typeof import('../sr
 const { AuthFacade } = require('../src/auth/auth.facade') as typeof import('../src/auth/auth.facade');
 const { InventarioFacade } =
   require('../src/inventario/inventario.facade') as typeof import('../src/inventario/inventario.facade');
+const { RevokedSessionsStore } =
+  require('../src/auth/revocation/revoked-sessions.store') as typeof import('../src/auth/revocation/revoked-sessions.store');
+const { PermissionsChangedStore } =
+  require('../src/auth/revocation/permissions-changed.store') as typeof import('../src/auth/revocation/permissions-changed.store');
 
 const signer = new JwtService({ privateKey: PRIVATE_PEM, signOptions: { algorithm: 'ES256' } });
-const tokenFor = (rol: Rol) =>
+const PERMISOS_POR_ROL: Record<Rol, Permiso[]> = {
+  ADMIN: [...PERMISOS],
+  ALMACENERO: [
+    'productos.ver',
+    'productos.registrar',
+    'productos.editar',
+    'compras.ver',
+    'compras.registrar',
+    'kardex.ver',
+  ],
+  FARMACEUTICO: ['productos.ver', 'ventas.ver', 'ventas.registrar', 'kardex.ver'],
+};
+const tokenFor = (rol: Rol, sid: string = randomUUID(), perms: Permiso[] = PERMISOS_POR_ROL[rol]) =>
   signer.sign(
-    { sub: randomUUID(), email: 'u@hce.local', name: 'U', rol, jti: randomUUID() },
+    { sub: randomUUID(), email: 'u@hce.local', name: 'U', rol, sid, perms, jti: randomUUID() },
     { expiresIn: 1800, issuer: 'hce-auth-service', audience: 'hce-api' },
   );
 
@@ -60,6 +76,13 @@ describe('API Gateway (e2e, seguridad HTTP)', () => {
   });
 
   afterAll(() => app.close());
+
+  async function sessionFor(rol: Rol, sid: string = randomUUID()) {
+    const access = `hce_at=${tokenFor(rol, sid)}`;
+    const res = await request(app.getHttpServer()).get('/api/v1/auth/csrf').set('Cookie', access).expect(200);
+    const token = (res.body as { csrfToken: string }).csrfToken;
+    return { cookies: [access, `hce_csrf=${token}`], token };
+  }
 
   it('agrega cabeceras de seguridad (Helmet, nosniff, CSP) y oculta X-Powered-By', async () => {
     const res = await request(app.getHttpServer()).get('/api/v1/health/live').expect(200);
@@ -111,35 +134,79 @@ describe('API Gateway (e2e, seguridad HTTP)', () => {
   it('escritura sin CSRF -> 403 CSRF_INVALID', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/productos')
-      .set('Cookie', `hce_at=${tokenFor('ADMIN')}`)
+      .set('Cookie', `hce_at=${tokenFor('ADMIN', randomUUID())}`)
       .send({ nombre: 'Prod', nroLote: 'L1' })
       .expect(403);
     expect(res.body.code).toBe(ErrorCode.CSRF_INVALID);
   });
 
-  it('RBAC: ALMACENERO registra producto; FARMACEUTICO no', async () => {
-    inventario.registrarProducto.mockResolvedValue({ id: 1 });
+  it('un CSRF anónimo (o de otra sesión) no sirve para una sesión autenticada', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/productos')
+      .set('Cookie', [`hce_at=${tokenFor('ADMIN')}`, csrfCookie])
+      .set('X-CSRF-Token', csrf)
+      .send({ nombre: 'Prod', nroLote: 'L1' })
+      .expect(403);
+    expect(res.body.code).toBe(ErrorCode.CSRF_INVALID);
+  });
+
+  it('sesión revocada (logout / robo de refresh) invalida al instante su access token vigente', async () => {
+    const sid = randomUUID();
+    const access = `hce_at=${tokenFor('ADMIN', sid)}`;
+    await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', access).expect(200);
+    app.get(RevokedSessionsStore).revoke(sid, 1800);
+    await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', access).expect(401);
+  });
+
+  it('autoriza por PERMISO: un farmacéutico con excepción GRANT productos.registrar puede registrar', async () => {
+    inventario.registrarProducto.mockResolvedValue({ id: 2 });
+    const sid = randomUUID();
+    const access = `hce_at=${tokenFor('FARMACEUTICO', sid, [...PERMISOS_POR_ROL.FARMACEUTICO, 'productos.registrar'])}`;
+    const res = await request(app.getHttpServer()).get('/api/v1/auth/csrf').set('Cookie', access);
+    const token = (res.body as { csrfToken: string }).csrfToken;
     await request(app.getHttpServer())
       .post('/api/v1/productos')
-      .set('Cookie', [`hce_at=${tokenFor('ALMACENERO')}`, csrfCookie])
-      .set('X-CSRF-Token', csrf)
+      .set('Cookie', [access, `hce_csrf=${token}`])
+      .set('X-CSRF-Token', token)
+      .send({ nombre: 'Prod', nroLote: 'L2' })
+      .expect(201);
+  });
+
+  it('permisos cambiados: el token previo responde 401 PERMISSIONS_CHANGED (el front refresca)', async () => {
+    const access = `hce_at=${tokenFor('ADMIN')}`;
+    const me = await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', access).expect(200);
+    const userId = (me.body as { user: { id: string } }).user.id;
+    app.get(PermissionsChangedStore).markChanged(userId, Math.floor(Date.now() / 1000) + 1);
+    const res = await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', access).expect(401);
+    expect(res.body.code).toBe(ErrorCode.PERMISSIONS_CHANGED);
+  });
+
+  it('RBAC: ALMACENERO registra producto; FARMACEUTICO no', async () => {
+    inventario.registrarProducto.mockResolvedValue({ id: 1 });
+    const almacen = await sessionFor('ALMACENERO');
+    await request(app.getHttpServer())
+      .post('/api/v1/productos')
+      .set('Cookie', almacen.cookies)
+      .set('X-CSRF-Token', almacen.token)
       .send({ nombre: 'Prod', nroLote: 'L1', costo: 1.5 })
       .expect(201);
 
+    const farmacia = await sessionFor('FARMACEUTICO');
     const res = await request(app.getHttpServer())
       .post('/api/v1/productos')
-      .set('Cookie', [`hce_at=${tokenFor('FARMACEUTICO')}`, csrfCookie])
-      .set('X-CSRF-Token', csrf)
+      .set('Cookie', farmacia.cookies)
+      .set('X-CSRF-Token', farmacia.token)
       .send({ nombre: 'Prod', nroLote: 'L1' })
       .expect(403);
     expect(res.body.code).toBe(ErrorCode.FORBIDDEN);
   });
 
   it('valida entrada estricta: campos extra y tipos inválidos -> 400 con errores por campo', async () => {
+    const admin = await sessionFor('ADMIN');
     const res = await request(app.getHttpServer())
       .post('/api/v1/productos')
-      .set('Cookie', [`hce_at=${tokenFor('ADMIN')}`, csrfCookie])
-      .set('X-CSRF-Token', csrf)
+      .set('Cookie', admin.cookies)
+      .set('X-CSRF-Token', admin.token)
       .send({ nombre: 'Prod', nroLote: 'L1', costo: 1.234, rol: 'ADMIN' })
       .expect(400);
     const fields = (res.body.errors as { field: string }[]).map((e) => e.field);
@@ -147,10 +214,11 @@ describe('API Gateway (e2e, seguridad HTTP)', () => {
   });
 
   it('POST /ventas exige Idempotency-Key UUID', async () => {
+    const farmacia = await sessionFor('FARMACEUTICO');
     const res = await request(app.getHttpServer())
       .post('/api/v1/ventas')
-      .set('Cookie', [`hce_at=${tokenFor('FARMACEUTICO')}`, csrfCookie])
-      .set('X-CSRF-Token', csrf)
+      .set('Cookie', farmacia.cookies)
+      .set('X-CSRF-Token', farmacia.token)
       .send({ items: [{ productoId: 1, cantidad: 1 }] })
       .expect(400);
     expect(res.body.errors[0].field).toBe('Idempotency-Key');
@@ -159,7 +227,7 @@ describe('API Gateway (e2e, seguridad HTTP)', () => {
   it('login emite cookies HttpOnly + SameSite=Strict y no devuelve tokens en el body', async () => {
     auth.login.mockResolvedValue({
       user: { id: '1', email: 'a@hce.local', nombreCompleto: 'A', rol: 'ADMIN' },
-      accessToken: 'AT',
+      accessToken: tokenFor('ADMIN'),
       accessTokenExpiresAt: new Date(Date.now() + 1_800_000).toISOString(),
       refreshToken: 'RT',
       refreshTokenExpiresAt: new Date(Date.now() + 28_800_000).toISOString(),
@@ -173,7 +241,8 @@ describe('API Gateway (e2e, seguridad HTTP)', () => {
     const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
     expect(cookies.find((c) => c.startsWith('hce_at='))).toMatch(/HttpOnly.*SameSite=Strict|SameSite=Strict.*HttpOnly/);
     expect(cookies.find((c) => c.startsWith('hce_rt='))).toContain('Path=/api/v1/auth');
-    expect(JSON.stringify(res.body)).not.toContain('AT"');
+    expect(cookies.every((c) => !/domain=/i.test(c))).toBe(true);
+    expect(cookies.find((c) => c.startsWith('hce_csrf='))).toBeDefined();
     expect(res.body).not.toHaveProperty('accessToken');
   });
 });

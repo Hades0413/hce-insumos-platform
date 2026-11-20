@@ -12,7 +12,6 @@ export function registerDefaultMetrics(service: string): void {
   defaultsRegistered = true;
 }
 
-/** Latencia de casos de uso / handlers (usado por el decorador ObservedUseCase). */
 export const operationDuration = new Histogram({
   name: 'hce_operation_duration_seconds',
   help: 'Duración de operaciones de aplicación',
@@ -21,10 +20,6 @@ export const operationDuration = new Histogram({
   registers: [metricsRegistry],
 });
 
-/**
- * Servidor HTTP mínimo SOLO para Prometheus, en un puerto interno que no se
- * publica fuera de la red de Docker.
- */
 export function startMetricsServer(port: number, logger = new Logger('Metrics')): Server {
   const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/metrics') {

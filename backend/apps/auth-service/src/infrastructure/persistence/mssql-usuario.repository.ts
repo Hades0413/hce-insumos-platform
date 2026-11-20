@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { MssqlExecutor } from '@hce/common';
-import { Rol } from '@hce/contracts';
+import { Permiso, Rol, sanearPermisos } from '@hce/contracts';
 import * as sql from 'mssql';
-import { InfoCliente, UsuarioRepository } from '../../domain/ports';
-import { POLITICA_BLOQUEO, Usuario, UsuarioConCredenciales } from '../../domain/usuario';
+import { HashedPassword } from '../../domain/security/password-hasher.port';
+import { InfoCliente } from '../../domain/usuario/info-cliente';
+import { UsuarioRepository } from '../../domain/usuario/usuario.repository.port';
+import { POLITICA_BLOQUEO, Usuario, UsuarioConCredenciales } from '../../domain/usuario/usuario';
 
 interface UsuarioRow {
   Id: string;
@@ -13,7 +15,7 @@ interface UsuarioRow {
   Activo: boolean;
   PasswordHash?: Buffer;
   PasswordSalt?: Buffer;
-  BloqueadoHasta?: Date | null;
+  HashVersion?: number;
 }
 
 const toUsuario = (r: UsuarioRow): Usuario => ({
@@ -38,12 +40,11 @@ export class MssqlUsuarioRepository implements UsuarioRepository {
     return Number(r.recordset[0]?.Total ?? 0);
   }
 
-  async crear(data: { email: string; nombreCompleto: string; hash: Buffer; salt: Buffer; rol: Rol }): Promise<Usuario> {
+  async crear(data: { email: string; nombreCompleto: string; password: HashedPassword; rol: Rol }): Promise<Usuario> {
     const r = await this.db.execute<UsuarioRow>('auth.usp_Usuario_Crear', (req) => {
       req.input('Email', sql.NVarChar(254), data.email);
       req.input('NombreCompleto', sql.NVarChar(150), data.nombreCompleto);
-      req.input('PasswordHash', sql.VarBinary(64), data.hash);
-      req.input('PasswordSalt', sql.VarBinary(32), data.salt);
+      bindPassword(req, data.password);
       req.input('Rol', sql.VarChar(20), data.rol);
     });
     return toUsuario(r.recordset[0]);
@@ -59,21 +60,18 @@ export class MssqlUsuarioRepository implements UsuarioRepository {
       ...toUsuario(row),
       passwordHash: Buffer.from(row.PasswordHash ?? []),
       passwordSalt: Buffer.from(row.PasswordSalt ?? []),
-      bloqueadoHasta: row.BloqueadoHasta ?? null,
+      hashVersion: Number(row.HashVersion ?? 1),
     };
   }
 
-  async registrarLoginFallido(id: string, cliente: InfoCliente): Promise<{ bloqueadoHasta: Date | null }> {
-    const r = await this.db.execute<{ BloqueadoHasta: Date | null }>(
-      'auth.usp_Usuario_RegistrarLoginFallido',
-      (req) => {
-        req.input('IdUsuario', sql.UniqueIdentifier, id);
-        req.input('MaxIntentos', sql.Int, POLITICA_BLOQUEO.MAX_INTENTOS);
-        req.input('MinutosBloqueo', sql.Int, POLITICA_BLOQUEO.MINUTOS_BLOQUEO);
-        bindCliente(req, cliente);
-      },
-    );
-    return { bloqueadoHasta: r.recordset[0]?.BloqueadoHasta ?? null };
+  async reservarIntento(id: string, cliente: InfoCliente): Promise<boolean> {
+    const r = await this.db.execute<{ Permitido: boolean }>('auth.usp_Login_ReservarIntento', (req) => {
+      req.input('IdUsuario', sql.UniqueIdentifier, id);
+      req.input('MaxIntentos', sql.Int, POLITICA_BLOQUEO.MAX_INTENTOS);
+      req.input('MinutosBloqueo', sql.Int, POLITICA_BLOQUEO.MINUTOS_BLOQUEO);
+      bindCliente(req, cliente);
+    });
+    return r.recordset[0]?.Permitido === true;
   }
 
   async registrarLoginExitoso(id: string, cliente: InfoCliente): Promise<void> {
@@ -92,4 +90,24 @@ export class MssqlUsuarioRepository implements UsuarioRepository {
       bindCliente(req, cliente);
     });
   }
+
+  async permisosEfectivos(id: string): Promise<Permiso[]> {
+    const r = await this.db.execute<{ Codigo: string }>('auth.usp_Usuario_PermisosEfectivos', (req) =>
+      req.input('IdUsuario', sql.UniqueIdentifier, id),
+    );
+    return sanearPermisos(r.recordset.map((x) => x.Codigo));
+  }
+
+  async actualizarHash(id: string, password: HashedPassword): Promise<void> {
+    await this.db.execute('auth.usp_Usuario_ActualizarHash', (req) => {
+      req.input('IdUsuario', sql.UniqueIdentifier, id);
+      bindPassword(req, password);
+    });
+  }
+}
+
+function bindPassword(req: sql.Request, password: HashedPassword): void {
+  req.input('PasswordHash', sql.VarBinary(64), password.hash);
+  req.input('PasswordSalt', sql.VarBinary(32), password.salt);
+  req.input('HashVersion', sql.TinyInt, password.version);
 }

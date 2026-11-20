@@ -1,7 +1,7 @@
 /* =============================================================================
-   consultas_tsql.sql — Consultas T-SQL de operación, reporte y auditoría
+   consultas_tsql.sql: Consultas T-SQL de operación, reporte y auditoría
    Base: HCE_Insumos. Ejecutar como un usuario con permisos de lectura
-   (p. ej. sa en desarrollo). La aplicación NO usa este archivo: consume los SP.
+   (p. ej. sa en desarrollo). La aplicación no usa este archivo: consume los SP.
 
    Índice:
      A. CRUD de productos vía procedimientos (insertar, listar, actualizar, eliminar)
@@ -31,15 +31,22 @@ GO
 
 -- A.3 Actualizar con concurrencia optimista (RowVersion leído previamente)
 DECLARE @Id INT, @Rv BINARY(8);
-SELECT @Id = Id_producto, @Rv = RowVersion FROM dbo.Productos WHERE NroLote = 'DCF-2026-07';
+SELECT @Id = Id_producto, @Rv = RowVersion FROM dbo.Productos WHERE NroLote = 'DCF-2026-07' AND Activo = 1;
 EXEC dbo.usp_Producto_Actualizar
      @Id_producto = @Id, @Nombre = N'Diclofenaco sódico 75 mg/3 ml amp', @NroLote = 'DCF-2026-07',
      @Costo = 1.25, @PrecioVenta = 1.69, @RowVersion = @Rv, @UsuarioId = N'dba', @RequestId = N'consulta-A3';
 GO
 
--- A.4 Eliminar (solo si no tiene movimientos; si tiene -> error 50005)
-DECLARE @IdEliminar INT = (SELECT Id_producto FROM dbo.Productos WHERE NroLote = 'DCF-2026-07');
+-- A.4 Eliminar (lógico: Activo = 0 con fecha y usuario; con stock > 0 -> error 50007)
+DECLARE @IdEliminar INT = (SELECT Id_producto FROM dbo.Productos WHERE NroLote = 'DCF-2026-07' AND Activo = 1);
 EXEC dbo.usp_Producto_Eliminar @Id_producto = @IdEliminar, @UsuarioId = N'dba', @RequestId = N'consulta-A4';
+GO
+
+-- A.5 Productos eliminados (se conservan para trazabilidad)
+SELECT Id_producto, Nombre_producto, NroLote, Fec_eliminacion, Id_UsuarioElimina
+FROM dbo.Productos
+WHERE Activo = 0
+ORDER BY Fec_eliminacion DESC;
 GO
 
 /* ============================================================ B. COMPRA Y VENTA */
@@ -52,8 +59,8 @@ SELECT p.Id_producto, x.Cantidad, x.Precio,
        ROUND(x.Cantidad * x.Precio * 0.18, 2),
        x.Cantidad * x.Precio + ROUND(x.Cantidad * x.Precio * 0.18, 2),
        ROUND(x.Precio * 1.35, 2)
-FROM (VALUES ('PCT-2026-001', 200, CAST(0.16 AS DECIMAL(18, 2))),
-             ('AMX-2026-014', 100, CAST(0.40 AS DECIMAL(18, 2)))) AS x (Lote, Cantidad, Precio)
+FROM (VALUES ('PCT-2611-001', 200, CAST(0.16 AS DECIMAL(18, 2))),
+             ('AMX-2611-014', 100, CAST(0.40 AS DECIMAL(18, 2)))) AS x (Lote, Cantidad, Precio)
 INNER JOIN dbo.Productos AS p ON p.NroLote = x.Lote;
 
 DECLARE @Sub DECIMAL(18, 2) = (SELECT SUM(Sub_Total) FROM @Lineas),
@@ -71,7 +78,7 @@ DECLARE @L dbo.tt_LineaVenta;
 INSERT INTO @L (Id_producto, Cantidad, Precio, Sub_Total, Igv, Total)
 SELECT p.Id_producto, 10, p.PrecioVenta, 10 * p.PrecioVenta,
        ROUND(10 * p.PrecioVenta * 0.18, 2), 10 * p.PrecioVenta + ROUND(10 * p.PrecioVenta * 0.18, 2)
-FROM dbo.Productos AS p WHERE p.NroLote = 'PCT-2026-001';
+FROM dbo.Productos AS p WHERE p.NroLote = 'PCT-2611-001';
 DECLARE @S DECIMAL(18, 2) = (SELECT SUM(Sub_Total) FROM @L), @I DECIMAL(18, 2) = (SELECT SUM(Igv) FROM @L);
 DECLARE @T DECIMAL(18, 2) = @S + @I, @K UNIQUEIDENTIFIER = NEWID(), @IdVenta INT, @R VARCHAR(30);
 EXEC dbo.usp_Venta_Registrar @Lineas = @L, @SubTotal = @S, @Igv = @I, @Total = @T,
@@ -87,7 +94,7 @@ GO
 
 /* ============================================================ C. KARDEX */
 
--- C.1 Kardex (Id_producto, nombre_producto, stock_actual, costo, precio venta) — vía SP
+-- C.1 Kardex (Id_producto, nombre_producto, stock_actual, costo, precio venta): vía SP
 EXEC dbo.usp_Kardex_Listar @Search = NULL, @Page = 1, @PageSize = 50;
 GO
 
@@ -100,6 +107,7 @@ SELECT p.Id_producto,
 FROM dbo.Productos AS p
 LEFT JOIN dbo.MovimientoDet AS d ON d.Id_Producto = p.Id_producto
 LEFT JOIN dbo.MovimientoCab AS c ON c.Id_MovimientoCab = d.Id_movimientocab
+WHERE p.Activo = 1
 GROUP BY p.Id_producto, p.Nombre_producto
 ORDER BY p.Nombre_producto;
 GO
@@ -139,7 +147,7 @@ GO
 
 /* ============================================================ D. REPORTES */
 
--- D.1 Ventas por día (últimos 30 días) — usa IX_VentaCab_fecRegistro
+-- D.1 Ventas por día (últimos 30 días): usa IX_VentaCab_fecRegistro
 SELECT CAST(v.fecRegistro AS DATE) AS Dia, COUNT(*) AS Nro_ventas,
        SUM(v.SubTotal) AS SubTotal, SUM(v.Igv) AS Igv, SUM(v.Total) AS Total
 FROM dbo.VentaCab AS v

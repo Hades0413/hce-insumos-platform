@@ -1,7 +1,6 @@
-/** DTOs — espejo exacto de docs/API_CONTRACT.md. */
-import type { Rol } from '@hce/domain';
+import type { Permiso, Rol } from '@hce/domain';
 
-export type { Rol };
+export type { Permiso, Rol };
 
 export interface Paginated<T> {
   items: T[];
@@ -20,6 +19,7 @@ export interface UserDto {
   email: string;
   nombreCompleto: string;
   rol: Rol;
+  permisos?: Permiso[];
 }
 
 export interface SessionDto {
@@ -93,9 +93,7 @@ export interface CompraDetalleDto extends DocumentoResumenDto {
 export type VentaDetalleDto = CompraDetalleDto;
 
 export interface DocumentoQuery extends PageQuery {
-  /** YYYY-MM-DD */
   desde?: string;
-  /** YYYY-MM-DD */
   hasta?: string;
 }
 
@@ -133,4 +131,49 @@ export interface HealthDto {
   info?: Record<string, unknown>;
   error?: Record<string, unknown>;
   details?: Record<string, unknown>;
+}
+
+export type TipoExcepcion = 'GRANT' | 'DENY';
+
+export interface PermisoCatalogoDto {
+  codigo: string;
+  descripcion: string;
+  modulo: string;
+}
+
+export interface RolDto {
+  codigo: Rol;
+  nombre: string;
+  permisos: string[];
+}
+
+export interface UsuarioAdminDto {
+  id: string;
+  email: string;
+  nombreCompleto: string;
+  rol: Rol;
+  activo: boolean;
+  excepciones: number;
+}
+
+export interface ExcepcionDto {
+  permiso: string;
+  tipo: TipoExcepcion;
+  motivo: string;
+  vigenteHasta: string | null;
+  otorgadoPor: string;
+  fecRegistro: string;
+}
+
+export interface PermisosUsuarioDto {
+  usuario: Pick<UsuarioAdminDto, 'id' | 'email' | 'nombreCompleto' | 'rol'>;
+  permisosRol: string[];
+  excepciones: ExcepcionDto[];
+  efectivos: string[];
+}
+
+export interface GuardarExcepcionDto {
+  tipo: TipoExcepcion;
+  motivo: string;
+  vigenteHasta?: string;
 }

@@ -1,5 +1,5 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { Observable } from 'rxjs';
 import { IDEMPOTENCY_HEADER } from '../security/cookies';
 import { GatewayRequest } from '../security/authenticated-user';

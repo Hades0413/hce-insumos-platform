@@ -2,14 +2,8 @@ import { ArgumentsHost, Catch, Logger, RpcExceptionFilter } from '@nestjs/common
 import { RpcException } from '@nestjs/microservices';
 import { ErrorCode, RpcErrorPayload, isRpcErrorPayload } from '@hce/contracts';
 import { Observable, throwError } from 'rxjs';
-import { AppError } from '../errors/app-error';
+import { AppError } from '@hce/core';
 
-/**
- * Filtro global de los microservicios: todo error sale por NATS como un
- * RpcErrorPayload serializable. Los errores inesperados se registran con su
- * stack pero al cliente solo llega un mensaje genérico (sin fuga de detalles
- * internos — OWASP A05/A09).
- */
 @Catch()
 export class RpcProblemFilter implements RpcExceptionFilter<unknown> {
   private readonly logger = new Logger(RpcProblemFilter.name);

@@ -1,6 +1,6 @@
 import { ErrorCode } from '@hce/contracts';
 import type * as sql from 'mssql';
-import { AppError } from '../errors/app-error';
+import { AppError } from '@hce/core';
 import { MssqlExecutor } from './mssql.executor';
 
 const sqlError = (number: number, message: string) => Object.assign(new Error(message), { number });

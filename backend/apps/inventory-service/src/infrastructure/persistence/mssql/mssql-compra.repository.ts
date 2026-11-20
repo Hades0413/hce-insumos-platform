@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { AppError, MssqlExecutor } from '@hce/common';
+import { MssqlExecutor } from '@hce/common';
+import { AppError } from '@hce/core';
 import { CompraDetalleDto, DocumentoResumenDto, ErrorCode } from '@hce/contracts';
 import * as sql from 'mssql';
 import { Compra } from '../../../domain/compra/compra';
@@ -7,10 +8,12 @@ import {
   CompraRepository,
   MetadatosIdempotencia,
   RangoFechas,
+  RegistroIdempotente,
   ResultadoRegistroCompra,
 } from '../../../domain/compra/compra.repository.port';
 import { AuditContext, Pagina, Paginacion } from '../../../domain/shared/audit-context';
 import { bindContext } from './mssql-producto.repository';
+import { serializarEventos } from './eventos.serializer';
 import {
   DocumentoLineaRow,
   DocumentoResumenRow,
@@ -23,7 +26,10 @@ import {
 export class MssqlCompraRepository implements CompraRepository {
   constructor(private readonly db: MssqlExecutor) {}
 
-  /** Documento completo en UN round-trip (TVP) y UNA transacción (SP). */
+  buscarPorIdempotencia(idempotencyKey: string): Promise<RegistroIdempotente | null> {
+    return buscarIdempotencia(this.db, 'C', idempotencyKey);
+  }
+
   async registrar(compra: Compra, meta: MetadatosIdempotencia, ctx: AuditContext): Promise<ResultadoRegistroCompra> {
     const lineas = new sql.Table('dbo.tt_LineaCompra');
     lineas.columns.add('Id_producto', sql.Int, { nullable: false });
@@ -45,6 +51,7 @@ export class MssqlCompraRepository implements CompraRepository {
       );
     }
 
+    const eventos = serializarEventos(compra.pullEvents());
     const result = await registrarIdempotente(() =>
       this.db.execute('dbo.usp_Compra_Registrar', (r) => {
         r.input('Lineas', lineas);
@@ -54,6 +61,7 @@ export class MssqlCompraRepository implements CompraRepository {
         r.input('IdempotencyKey', sql.UniqueIdentifier, meta.idempotencyKey);
         r.input('RequestHash', sql.VarBinary(32), meta.requestHash);
         bindContext(r, ctx);
+        r.input('Eventos', sql.NVarChar(sql.MAX), eventos);
         r.output('Id_CompraCab', sql.Int);
         r.output('Resultado', sql.VarChar(30));
       }),
@@ -89,10 +97,6 @@ export function idempotencyConflict(): AppError {
   );
 }
 
-/**
- * Dos reintentos simultáneos con la MISMA key: uno gana, el otro choca con el
- * índice único filtrado (DUPLICATE). Se re-ejecuta y el SP responde IDEMPOTENTE.
- */
 export async function registrarIdempotente<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
@@ -100,4 +104,20 @@ export async function registrarIdempotente<T>(run: () => Promise<T>): Promise<T>
     if (error instanceof AppError && error.code === ErrorCode.DUPLICATE) return run();
     throw error;
   }
+}
+
+export async function buscarIdempotencia(
+  db: MssqlExecutor,
+  tipo: 'C' | 'V',
+  idempotencyKey: string,
+): Promise<RegistroIdempotente | null> {
+  const r = await db.execute<{ Id: number; RequestHash: Buffer | null }>(
+    'dbo.usp_Documento_BuscarPorIdempotencia',
+    (req) => {
+      req.input('Tipo', sql.Char(1), tipo);
+      req.input('IdempotencyKey', sql.UniqueIdentifier, idempotencyKey);
+    },
+  );
+  const row = r.recordset[0];
+  return row ? { id: row.Id, requestHash: Buffer.from(row.RequestHash ?? []) } : null;
 }

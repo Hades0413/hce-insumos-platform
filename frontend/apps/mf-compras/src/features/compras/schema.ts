@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
+z.config({ jitless: true });
+
 const hasMax2Decimals = (n: number): boolean => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
 
-/** Línea de compra. Los mensajes son los que ve el usuario. */
 export const compraItemSchema = z.object({
   productoId: z.number().int().positive(),
   nombre: z.string(),
@@ -29,7 +30,6 @@ export const compraFormSchema = z.object({
 
 export type CompraFormValues = z.infer<typeof compraFormSchema>;
 
-/** Modal "Registrar producto". precioVenta lo calcula el backend (costo × 1.35). */
 export const productoFormSchema = z.object({
   nombre: z.string().trim().min(2, 'Mínimo 2 caracteres').max(150, 'Máximo 150 caracteres'),
   nroLote: z

@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
+z.config({ jitless: true });
+
 export const MENSAJE_STOCK = 'La cantidad no debe ser mayor al stock';
 
 export const ventaItemSchema = z.object({
   productoId: z.number().int().positive(),
   nombre: z.string(),
   nroLote: z.string(),
-  /** Precio de venta vigente (solo informativo: el servidor decide el precio). */
   precioVenta: z.number().nonnegative(),
-  /** Stock disponible al momento de agregar la línea (calculado desde movimientos). */
   stock: z.number().int().nonnegative(),
   cantidad: z
     .number({ error: 'Ingrese la cantidad' })
@@ -27,6 +27,5 @@ export const ventaFormSchema = z.object({
 
 export type VentaFormValues = z.infer<typeof ventaFormSchema>;
 
-/** Índices de líneas cuya cantidad supera el stock (validación al guardar, PDF 1.2.2). */
 export const lineasSinStock = (items: VentaFormValues['items']): number[] =>
   items.flatMap((i, idx) => (i.cantidad > i.stock ? [idx] : []));

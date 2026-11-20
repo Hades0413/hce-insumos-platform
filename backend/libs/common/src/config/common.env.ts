@@ -1,6 +1,5 @@
 import Joi from 'joi';
 
-/** Reglas de validación de variables compartidas (fail-fast al arrancar). */
 export const commonEnvSchema = {
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   LOG_LEVEL: Joi.string().valid('fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent').default('info'),
@@ -9,6 +8,7 @@ export const commonEnvSchema = {
   NATS_SERVERS: Joi.string().required(),
   NATS_USER: Joi.string().required(),
   NATS_PASSWORD: Joi.string().min(12).required(),
+  NATS_TLS_CA_FILE: Joi.string().optional(),
 };
 
 export const mssqlEnvSchema = {
@@ -21,7 +21,8 @@ export const mssqlEnvSchema = {
   DB_TRUST_SERVER_CERT: Joi.boolean().default(false),
   DB_POOL_MAX: Joi.number().integer().min(1).max(200).default(20),
   DB_POOL_MIN: Joi.number().integer().min(0).default(2),
-  DB_REQUEST_TIMEOUT_MS: Joi.number().integer().min(1000).default(15000),
+  DB_REQUEST_TIMEOUT_MS: Joi.number().integer().min(1000).max(7000).default(6000),
+  DB_TLS_CA_FILE: Joi.string().optional(),
 };
 
 export function splitCsv(value: string | undefined): string[] {

@@ -1,7 +1,7 @@
 import { IdRequest, RequestContext } from '@hce/contracts';
 import { ProductoRepository } from '../../../domain/producto/producto.repository.port';
 import { validarId } from '../../../domain/shared/cantidad';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 
 export class EliminarProductoUseCase implements UseCase<IdRequest, void> {
   constructor(private readonly productos: ProductoRepository) {}

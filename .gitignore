@@ -1,20 +1,107 @@
-# Secretos y entorno local
+# =====================================================================
+#  HCE Insumos - .gitignore
+#  Solo se sube el codigo fuente, scripts SQL, configuracion de ejemplo
+#  y documentacion. NUNCA secretos, dependencias ni artefactos generados.
+# =====================================================================
+
+# --- SECRETOS (NUNCA subir) -------------------------------------------
+# Variables de entorno reales (contraseñas de BD/NATS, clave privada JWT, CSRF)
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
+!**/.env.example
+# PKI interna generada por scripts/setup.sh (CA, certificados y llaves TLS)
 secrets/
+*.key
+*.crt
+*.csr
+*.srl
 *.pem
+*.pfx
+*.p12
+*.jks
+*.keystore
+keystore/
+password.txt
+*.secret
+*.secrets
+credentials*.json
+# Copias de seguridad de entornos / volcados de BD (pueden contener datos clínicos)
+*.env.backup
+*.bak
+*.bacpac
+*.mdf
+*.ldf
+*.dump
+*.sql.gz
+backups/
 
-# Dependencias / builds
+# --- Dependencias -------------------------------------------------------
 node_modules/
-dist/
-.next/
-coverage/
-*.tsbuildinfo
-*.log
+.pnpm-store/
+.npm/
+.yarn/
+jspm_packages/
 
-# IDE / SO
-.idea/
+# --- Salidas de compilacion / generados ---------------------------------
+dist/
+build/
+out/
+.next/
+.turbo/
+.swc/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+next-env.d.ts
+storybook-static/
+*.zip
+*.tgz
+
+# --- Pruebas / herramientas locales -------------------------------------
+test-results/
+playwright-report/
+newman/
+.cache/
+tests/out/
+tools/
+
+# --- Docker / despliegue local ------------------------------------------
+docker-compose.override.yml
+*.override.yml
+.docker/
+
+# --- Registros y temporales ---------------------------------------------
+*.log
+logs/
+*.tmp
+*.temp
+*.swp
+*~
+.~lock.*
+npm-debug.log*
+pnpm-debug.log*
+.eslintcache
+
+# --- Sistema operativo --------------------------------------------------
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+._*
+
+# --- Editores / IDE / asistentes ----------------------------------------
 .vscode/*
 !.vscode/extensions.json
-.DS_Store
+.idea/
+*.iml
+.claude/
+.cursor/
+.history/
+
+# --- Notas internas del autor (no publicas) -----------------------------
+CONTEXTO.md
+NOTAS*.md

@@ -4,26 +4,35 @@ export interface NatsConnectionConfig {
   servers: string[];
   user: string;
   pass: string;
+  tlsCaFile?: string;
 }
 
-/** Opciones del servidor NATS de un microservicio (queue group => balanceo entre réplicas). */
+function connection(config: NatsConnectionConfig) {
+  return {
+    servers: config.servers,
+    user: config.user,
+    pass: config.pass,
+    maxReconnectAttempts: -1,
+    reconnectTimeWait: 1_000,
+    ...(config.tlsCaFile ? { tls: { caFile: config.tlsCaFile } } : {}),
+  };
+}
+
 export function natsServerOptions(config: NatsConnectionConfig, queue: string, name: string): NatsOptions {
   return {
     transport: Transport.NATS,
     options: {
-      servers: config.servers,
-      user: config.user,
-      pass: config.pass,
+      ...connection(config),
       queue,
       name,
-      maxReconnectAttempts: -1,
-      reconnectTimeWait: 1_000,
-      // Drenado: deja de recibir mensajes y espera a que terminen los en curso
-      // antes de cerrar (docker stop_grace_period debe ser mayor).
       gracefulShutdown: true,
       gracePeriod: 5_000,
     },
   };
+}
+
+export function natsBroadcastSubscriberOptions(config: NatsConnectionConfig, name: string): NatsOptions {
+  return { transport: Transport.NATS, options: { ...connection(config), name } };
 }
 
 export function natsClientOptions(
@@ -31,16 +40,5 @@ export function natsClientOptions(
   config: NatsConnectionConfig,
   clientName: string,
 ): ClientProviderOptions {
-  return {
-    name,
-    transport: Transport.NATS,
-    options: {
-      servers: config.servers,
-      user: config.user,
-      pass: config.pass,
-      name: clientName,
-      maxReconnectAttempts: -1,
-      reconnectTimeWait: 1_000,
-    },
-  };
+  return { name, transport: Transport.NATS, options: { ...connection(config), name: clientName } };
 }

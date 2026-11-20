@@ -11,9 +11,8 @@ import {
   SearchQuery,
 } from '@hce/contracts';
 import { USE_CASES } from '../../../application/ports/tokens';
-import { UseCase } from '../../../application/ports/use-case';
+import { UseCase } from '@hce/core';
 
-/** Adaptador de entrada (driving adapter): traduce mensajes NATS a casos de uso. Sin lógica de negocio. */
 @Controller()
 export class ProductosNatsController {
   constructor(

@@ -1,74 +1,117 @@
 'use client';
 
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { api, type KardexItemDto } from '@hce/api-client';
-import { queryKeys } from '@hce/api-client/react';
-import { Alert, Badge, DataTable, DateTime, Modal, Money, Pagination } from '@hce/ui';
+import { api, type KardexItemDto, type MovimientoDto } from '@hce/api-client';
+import { queryKeys, usePaginatedQuery } from '@hce/api-client/react';
+import { errorMessage } from '@hce/features';
+import { Alert, Badge, DataTable, DateTime, LoteStamp, Modal, Money, Pagination, StepChart, StockLevel } from '@hce/ui';
 
 const PAGE_SIZE = 10;
 
-/** Movimientos (compras = ENTRADA, ventas = SALIDA) de un producto, con saldo acumulado. */
-export function MovimientosModal({ producto, onClose }: { producto: KardexItemDto | null; onClose: () => void }) {
-  const [page, setPage] = useState(1);
-  const productoId = producto?.productoId ?? 0;
-  const q = { page, pageSize: PAGE_SIZE };
+const esEntrada = (m: MovimientoDto) => m.tipoMovimiento === 'ENTRADA';
 
-  const { data, error, isFetching } = useQuery({
-    queryKey: queryKeys.kardex.movimientos(productoId, q),
-    queryFn: () => api.kardex.movimientos(productoId, q),
+export function MovimientosModal({ producto, onClose }: { producto: KardexItemDto | null; onClose: () => void }) {
+  const productoId = producto?.productoId ?? 0;
+  const movimientos = usePaginatedQuery({
+    queryKey: (page) => queryKeys.kardex.movimientos(productoId, { page, pageSize: PAGE_SIZE }),
+    queryFn: (page) => api.kardex.movimientos(productoId, { page, pageSize: PAGE_SIZE }),
     enabled: producto !== null,
-    placeholderData: keepPreviousData,
   });
+  const data = movimientos.data;
+  const serie = [...(data?.items ?? [])].reverse().map((m) => ({ fecha: m.fecRegistro, saldo: m.saldo }));
 
   const close = () => {
-    setPage(1);
+    movimientos.resetPage();
     onClose();
   };
 
   return (
-    <Modal open={producto !== null} onClose={close} size="lg" title={`Movimientos · ${producto?.nombreProducto ?? ''}`} description={producto ? `ID ${producto.productoId} · Lote ${producto.nroLote}` : undefined}>
+    <Modal
+      open={producto !== null}
+      onClose={close}
+      size="lg"
+      title={producto?.nombreProducto ?? 'Movimientos'}
+      description={producto && <LoteStamp lote={producto.nroLote} />}
+    >
       {producto && (
-        <dl className="mb-4 grid grid-cols-3 gap-3 rounded-lg bg-canvas p-3 text-sm">
-          <div>
-            <dt className="text-muted">Stock actual</dt>
-            <dd className="text-lg font-bold">{data?.producto.stockActual ?? producto.stockActual}</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Costo</dt>
-            <dd className="font-semibold"><Money value={producto.costo} /></dd>
-          </div>
-          <div>
-            <dt className="text-muted">Precio venta</dt>
-            <dd className="font-semibold"><Money value={producto.precioVenta} /></dd>
-          </div>
-        </dl>
+        <div className="mb-5 grid gap-4 sm:grid-cols-[auto_1fr] sm:items-end">
+          <dl className="grid grid-cols-3 gap-6 text-[0.9375rem]">
+            <div>
+              <dt className="text-sm text-muted">Stock actual</dt>
+              <dd className="text-2xl">
+                <StockLevel stock={data?.producto.stockActual ?? producto.stockActual} />
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm text-muted">Costo</dt>
+              <dd className="pt-1.5 font-semibold">
+                <Money value={producto.costo} />
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm text-muted">Precio de venta</dt>
+              <dd className="pt-1.5 font-semibold">
+                <Money value={producto.precioVenta} />
+              </dd>
+            </div>
+          </dl>
+          <StepChart points={serie} label={`Evolución del saldo en los ${serie.length} movimientos mostrados`} />
+        </div>
       )}
-      {error && <Alert title="No se pudieron cargar los movimientos">{error.message}</Alert>}
+      {movimientos.error && (
+        <Alert title="No se pudieron cargar los movimientos">{errorMessage(movimientos.error)}</Alert>
+      )}
       <DataTable
         caption="Movimientos del producto"
         rows={data?.items}
-        loading={isFetching}
+        loading={movimientos.isFetching}
         rowKey={(m) => `${m.movimientoId}-${m.idTipoMovimiento}`}
         empty="Este producto aún no tiene movimientos."
         columns={[
-          { key: 'fecha', header: 'Fecha registro', cell: (m) => <DateTime value={m.fecRegistro} /> },
+          {
+            key: 'fecha',
+            header: 'Fecha de registro',
+            cell: (m) => <DateTime value={m.fecRegistro} />,
+          },
           {
             key: 'tipo',
-            header: 'Tipo movimiento',
-            cell: (m) => <Badge tone={m.tipoMovimiento === 'ENTRADA' ? 'ok' : 'danger'}>{m.tipoMovimiento}</Badge>,
+            header: 'Movimiento',
+            cell: (m) => <Badge tone={esEntrada(m) ? 'ok' : 'warn'}>{esEntrada(m) ? 'Entrada' : 'Salida'}</Badge>,
           },
-          { key: 'doc', header: 'Documento', hideBelow: 'sm', cell: (m) => `${m.tipoMovimiento === 'ENTRADA' ? 'Compra' : 'Venta'} N.º ${m.documentoOrigenId}` },
+          {
+            key: 'doc',
+            header: 'Documento',
+            hideBelow: 'sm',
+            cell: (m) => (
+              <span className="text-muted">{`${esEntrada(m) ? 'Compra' : 'Venta'} N.º ${m.documentoOrigenId}`}</span>
+            ),
+          },
           {
             key: 'cant',
             header: 'Cantidad',
             align: 'right',
-            cell: (m) => <span className={m.tipoMovimiento === 'ENTRADA' ? 'text-ok' : 'text-danger'}>{m.tipoMovimiento === 'ENTRADA' ? '+' : '−'}{m.cantidad}</span>,
+            cell: (m) => (
+              <span className={esEntrada(m) ? 'font-semibold text-ok' : 'font-semibold text-warn'}>
+                {esEntrada(m) ? '+' : '−'}
+                {m.cantidad.toLocaleString('es-PE')}
+              </span>
+            ),
           },
-          { key: 'saldo', header: 'Saldo', align: 'right', cell: (m) => <span className="font-semibold">{m.saldo}</span> },
+          {
+            key: 'saldo',
+            header: 'Saldo',
+            align: 'right',
+            cell: (m) => <span className="font-bold">{m.saldo.toLocaleString('es-PE')}</span>,
+          },
         ]}
       />
-      {data && <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />}
+      {data && data.total > PAGE_SIZE && (
+        <Pagination
+          page={movimientos.page}
+          pageSize={PAGE_SIZE}
+          total={data.total}
+          onPageChange={movimientos.setPage}
+        />
+      )}
     </Modal>
   );
 }

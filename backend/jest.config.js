@@ -1,4 +1,3 @@
-/** @type {import('jest').Config} */
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
@@ -11,6 +10,7 @@ module.exports = {
   roots: ['<rootDir>/apps/', '<rootDir>/libs/'],
   moduleNameMapper: {
     '^@hce/contracts(|/.*)$': '<rootDir>/libs/contracts/src/$1',
+    '^@hce/core(|/.*)$': '<rootDir>/libs/core/src/$1',
     '^@hce/common(|/.*)$': '<rootDir>/libs/common/src/$1',
   },
 };

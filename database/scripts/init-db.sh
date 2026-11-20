@@ -13,6 +13,15 @@ set -euo pipefail
 : "${INSUMOS_DB_PASSWORD:?INSUMOS_DB_PASSWORD es obligatorio}"
 : "${AUTH_DB_PASSWORD:?AUTH_DB_PASSWORD es obligatorio}"
 
+# Las contraseñas se interpolan en literales T-SQL (sqlcmd -v): se restringe el
+# alfabeto para que un carácter como ' nunca pueda romper ni inyectar la sentencia.
+for var in INSUMOS_DB_PASSWORD AUTH_DB_PASSWORD; do
+  if [[ ! "${!var}" =~ ^[A-Za-z0-9_!@#%^*.+=-]{16,128}$ ]]; then
+    echo "[db-init] ERROR: ${var} debe tener 16-128 caracteres de [A-Za-z0-9_!@#%^*.+=-]" >&2
+    exit 1
+  fi
+done
+
 DB_HOST="${DB_HOST:-sqlserver}"
 DB_PORT="${DB_PORT:-1433}"
 SEED_DEMO_DATA="${SEED_DEMO_DATA:-true}"

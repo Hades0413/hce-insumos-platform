@@ -2,12 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { MssqlExecutor } from '@hce/common';
 import { DocumentoResumenDto, VentaDetalleDto } from '@hce/contracts';
 import * as sql from 'mssql';
-import { MetadatosIdempotencia, RangoFechas } from '../../../domain/compra/compra.repository.port';
+import { MetadatosIdempotencia, RangoFechas, RegistroIdempotente } from '../../../domain/compra/compra.repository.port';
 import { AuditContext, Pagina, Paginacion } from '../../../domain/shared/audit-context';
 import { Venta } from '../../../domain/venta/venta';
 import { ResultadoRegistroVenta, VentaRepository } from '../../../domain/venta/venta.repository.port';
-import { idempotencyConflict, registrarIdempotente } from './mssql-compra.repository';
+import { buscarIdempotencia, idempotencyConflict, registrarIdempotente } from './mssql-compra.repository';
 import { bindContext } from './mssql-producto.repository';
+import { serializarEventos } from './eventos.serializer';
 import {
   DocumentoLineaRow,
   DocumentoResumenRow,
@@ -25,6 +26,10 @@ interface ConflictoRow {
 @Injectable()
 export class MssqlVentaRepository implements VentaRepository {
   constructor(private readonly db: MssqlExecutor) {}
+
+  buscarPorIdempotencia(idempotencyKey: string): Promise<RegistroIdempotente | null> {
+    return buscarIdempotencia(this.db, 'V', idempotencyKey);
+  }
 
   async registrar(venta: Venta, meta: MetadatosIdempotencia, ctx: AuditContext): Promise<ResultadoRegistroVenta> {
     const lineas = new sql.Table('dbo.tt_LineaVenta');
@@ -45,6 +50,7 @@ export class MssqlVentaRepository implements VentaRepository {
       );
     }
 
+    const eventos = serializarEventos(venta.pullEvents());
     const result = await registrarIdempotente(() =>
       this.db.execute<ConflictoRow>('dbo.usp_Venta_Registrar', (r) => {
         r.input('Lineas', lineas);
@@ -54,6 +60,7 @@ export class MssqlVentaRepository implements VentaRepository {
         r.input('IdempotencyKey', sql.UniqueIdentifier, meta.idempotencyKey);
         r.input('RequestHash', sql.VarBinary(32), meta.requestHash);
         bindContext(r, ctx);
+        r.input('Eventos', sql.NVarChar(sql.MAX), eventos);
         r.output('Id_VentaCab', sql.Int);
         r.output('Resultado', sql.VarChar(30));
       }),

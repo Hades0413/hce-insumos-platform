@@ -1,6 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions } from '@nestjs/microservices';
-import { natsServerOptions, registerDefaultMetrics, RpcProblemFilter, splitCsv, startMetricsServer } from '@hce/common';
+import {
+  installProcessGuards,
+  natsServerOptions,
+  registerDefaultMetrics,
+  RpcProblemFilter,
+  splitCsv,
+  startMetricsServer,
+} from '@hce/common';
 import { QUEUE_GROUPS } from '@hce/contracts';
 import { Logger } from 'nestjs-pino';
 import { InventoryModule } from './inventory.module';
@@ -12,6 +19,7 @@ async function bootstrap(): Promise<void> {
         servers: splitCsv(process.env.NATS_SERVERS),
         user: process.env.NATS_USER ?? '',
         pass: process.env.NATS_PASSWORD ?? '',
+        tlsCaFile: process.env.NATS_TLS_CA_FILE,
       },
       QUEUE_GROUPS.INVENTORY,
       'inventory-service',
@@ -21,6 +29,7 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(Logger));
   app.useGlobalFilters(new RpcProblemFilter());
   app.enableShutdownHooks();
+  installProcessGuards('inventory-service', () => app.close());
 
   registerDefaultMetrics('inventory-service');
   const metrics = startMetricsServer(Number(process.env.METRICS_PORT ?? 9464));

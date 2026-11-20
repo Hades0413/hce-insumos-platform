@@ -1,9 +1,9 @@
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { KardexMovimientosDto, KardexMovimientosRequest } from '@hce/contracts';
 import { KardexReadModel } from '../../../domain/kardex/kardex.read-model.port';
 import { normalizarPaginacion } from '../../../domain/shared/audit-context';
 import { validarId } from '../../../domain/shared/cantidad';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 
 export class ListarMovimientosUseCase implements UseCase<KardexMovimientosRequest, KardexMovimientosDto> {
   constructor(private readonly kardex: KardexReadModel) {}

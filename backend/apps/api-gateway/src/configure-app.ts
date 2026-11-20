@@ -8,20 +8,14 @@ import helmet from 'helmet';
 import { buildValidationPipe } from './common/pipes';
 import { GatewayEnv } from './config/gateway.config';
 
-/**
- * Configuración HTTP del gateway (seguridad + parsing). Se usa en main.ts y en
- * los tests e2e, garantizando que se prueba exactamente lo que se despliega.
- */
 export function configureApp(app: NestExpressApplication): INestApplication {
   const config = app.get(ConfigService<GatewayEnv, true>);
   const prefix = config.get('API_PREFIX', { infer: true });
 
-  // ---------------------------------------------------------------- Seguridad HTTP
   app.disable('x-powered-by');
   app.set('trust proxy', config.get('TRUST_PROXY', { infer: true }));
   app.use(
     helmet({
-      // API JSON: CSP restrictiva. Swagger UI (solo no-prod) necesita estilos inline.
       contentSecurityPolicy: {
         useDefaults: false,
         directives: {
@@ -39,7 +33,7 @@ export function configureApp(app: NestExpressApplication): INestApplication {
       crossOriginResourcePolicy: { policy: 'same-site' },
       referrerPolicy: { policy: 'no-referrer' },
       hsts: { maxAge: 31_536_000, includeSubDomains: true, preload: true },
-      xContentTypeOptions: true, // X-Content-Type-Options: nosniff
+      xContentTypeOptions: true,
       xFrameOptions: { action: 'deny' },
     }),
   );
@@ -49,7 +43,6 @@ export function configureApp(app: NestExpressApplication): INestApplication {
     next();
   });
 
-  // CORS: SOLO el/los origen(es) del front. Credenciales (cookies) habilitadas.
   app.enableCors({
     origin: splitCsv(config.get('CORS_ORIGINS', { infer: true })),
     credentials: true,
@@ -59,7 +52,6 @@ export function configureApp(app: NestExpressApplication): INestApplication {
     maxAge: 600,
   });
 
-  // Límite de tamaño del body (DoS) + error JSON uniforme si el body es inválido.
   const limit = config.get('BODY_LIMIT', { infer: true });
   app.use(json({ limit }));
   app.use(urlencoded({ extended: false, limit }));

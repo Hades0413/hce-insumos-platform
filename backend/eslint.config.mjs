@@ -28,17 +28,16 @@ export default tseslint.config(
     },
   },
   {
-    // Arquitectura hexagonal verificada en CI: el DOMINIO no depende de frameworks ni de adaptadores.
     files: ['apps/*/src/domain/**/*.ts'],
     ignores: ['**/*.spec.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
         {
-          paths: [{ name: '@hce/common', message: 'Importe solo AppError (@hce/common/errors/app-error).' }],
+          paths: [{ name: '@hce/common', message: 'El dominio solo usa @hce/core y @hce/contracts.' }],
           patterns: [
             {
-              group: ['@nestjs/*', 'mssql', 'nats', 'express', 'rxjs'],
+              group: ['@nestjs/*', 'mssql', 'nats', 'express', 'rxjs', 'prom-client', 'pino*'],
               message: 'El dominio debe ser independiente del framework.',
             },
             { group: ['**/infrastructure/**', '**/application/**'], message: 'El dominio no conoce capas externas.' },
@@ -48,12 +47,39 @@ export default tseslint.config(
     },
   },
   {
-    // La capa de aplicación no conoce adaptadores concretos (solo puertos).
     files: ['apps/*/src/application/**/*.ts'],
+    ignores: ['**/*.spec.ts', '**/*.test-doubles.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [{ group: ['**/infrastructure/**', 'mssql', 'nats'], message: 'Use puertos, no adaptadores.' }] },
+        {
+          paths: [{ name: '@hce/common', message: 'La aplicación no depende de infraestructura (use puertos).' }],
+          patterns: [
+            {
+              group: ['@nestjs/*', 'mssql', 'nats', 'express', 'prom-client', 'pino*'],
+              message: 'Casos de uso sin framework.',
+            },
+            { group: ['**/infrastructure/**'], message: 'Use puertos, no adaptadores.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['libs/core/src/**/*.ts'],
+    ignores: ['**/*.spec.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: '@hce/common', message: '@hce/core no puede depender de infraestructura.' }],
+          patterns: [
+            {
+              group: ['@nestjs/*', 'mssql', 'nats', 'express', 'rxjs', 'prom-client', 'pino*'],
+              message: 'Núcleo sin framework.',
+            },
+          ],
+        },
       ],
     },
   },
@@ -65,7 +91,6 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/unbound-method': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',
-      // Los e2e deben fijar process.env ANTES de cargar los módulos de Nest.
       '@typescript-eslint/no-require-imports': 'off',
     },
   },

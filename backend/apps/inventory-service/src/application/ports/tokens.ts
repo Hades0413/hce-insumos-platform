@@ -1,4 +1,3 @@
-/** Tokens de inyección de los casos de uso (los adaptadores dependen de abstracciones — DIP). */
 export const USE_CASES = {
   REGISTRAR_PRODUCTO: Symbol('RegistrarProducto'),
   ACTUALIZAR_PRODUCTO: Symbol('ActualizarProducto'),

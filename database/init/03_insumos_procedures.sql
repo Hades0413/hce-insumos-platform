@@ -1,5 +1,5 @@
 /* =============================================================================
-   03_insumos_procedures.sql — Procedimientos almacenados (API de datos)
+   03_insumos_procedures.sql: Procedimientos almacenados (API de datos)
    Base: HCE_Insumos. Idempotente (CREATE OR ALTER).
 
    Convenciones:
@@ -8,9 +8,10 @@
      triggers de auditoría registren al usuario de negocio real.
    - Errores de negocio con THROW 50xxx (el adaptador los traduce a HTTP):
        50002 NOT_FOUND            50003 CONCURRENCY_CONFLICT   50004 DUPLICATE
-       50005 HAS_MOVEMENTS        50006 INVALID_DOCUMENT        50010 INMUTABLE
+       50005 HAS_MOVEMENTS        50006 INVALID_DOCUMENT        50007 PRODUCTO_CON_STOCK
+       50010 INMUTABLE
    - Resultados "esperables" (stock insuficiente, precio cambiado, idempotencia)
-     se devuelven en @Resultado + un result set, NO como excepción: el cliente
+     se devuelven en @Resultado + un result set, no como excepción: el cliente
      necesita el detalle por línea.
    - Listados paginados: result set 1 = total, result set 2 = página.
      OPTION (RECOMPILE) en búsquedas "catch-all" evita planes malos por sniffing.
@@ -45,7 +46,8 @@ BEGIN
 END;
 GO
 
-/* Vista de lectura: producto + stock (lectura O(1) por la vista indexada). */
+/* Vista de lectura: productos activos + stock (lectura O(1) por la vista indexada).
+   Los productos eliminados lógicamente no aparecen en catálogo, kardex ni documentos nuevos. */
 CREATE OR ALTER VIEW dbo.vw_ProductoStock
 AS
 SELECT p.Id_producto,
@@ -54,10 +56,11 @@ SELECT p.Id_producto,
        p.Fec_registro,
        p.Costo,
        p.PrecioVenta,
-       CAST(ISNULL(s.Stock, 0) AS INT) AS Stock,
+       CAST(ISNULL(s.Stock, 0) AS BIGINT) AS Stock,
        p.RowVersion
 FROM dbo.Productos AS p
-LEFT JOIN dbo.vw_StockProducto AS s WITH (NOEXPAND) ON s.Id_Producto = p.Id_producto;
+LEFT JOIN dbo.vw_StockProducto AS s WITH (NOEXPAND) ON s.Id_Producto = p.Id_producto
+WHERE p.Activo = 1;
 GO
 
 /* ======================================================================= PRODUCTOS */
@@ -77,7 +80,7 @@ BEGIN
     SET @Nombre  = LTRIM(RTRIM(@Nombre));
     SET @NroLote = LTRIM(RTRIM(@NroLote));
 
-    IF EXISTS (SELECT 1 FROM dbo.Productos WHERE Nombre_producto = @Nombre AND NroLote = @NroLote)
+    IF EXISTS (SELECT 1 FROM dbo.Productos WHERE Nombre_producto = @Nombre AND NroLote = @NroLote AND Activo = 1)
         THROW 50004, N'Ya existe un producto con el mismo nombre y número de lote.', 1;
 
     DECLARE @Id INT;
@@ -108,8 +111,16 @@ BEGIN
     SET @NroLote = LTRIM(RTRIM(@NroLote));
 
     IF EXISTS (SELECT 1 FROM dbo.Productos
-               WHERE Nombre_producto = @Nombre AND NroLote = @NroLote AND Id_producto <> @Id_producto)
+               WHERE Nombre_producto = @Nombre AND NroLote = @NroLote AND Id_producto <> @Id_producto AND Activo = 1)
         THROW 50004, N'Ya existe otro producto con el mismo nombre y número de lote.', 1;
+
+    /* Trazabilidad de lotes (alertas sanitarias / recall): con movimientos en el
+       kardex, nombre y lote quedan congelados; los documentos históricos los
+       muestran tal como se registraron. Un lote distinto es un producto distinto. */
+    IF EXISTS (SELECT 1 FROM dbo.Productos
+               WHERE Id_producto = @Id_producto AND (Nombre_producto <> @Nombre OR NroLote <> @NroLote))
+       AND EXISTS (SELECT 1 FROM dbo.MovimientoDet WHERE Id_Producto = @Id_producto)
+        THROW 50005, N'El producto ya tiene movimientos: su nombre y número de lote no se pueden modificar. Registre un producto nuevo para otro lote.', 1;
 
     /* Concurrencia optimista: solo actualiza si nadie modificó la fila (RowVersion). */
     UPDATE dbo.Productos
@@ -119,11 +130,12 @@ BEGIN
            PrecioVenta      = @PrecioVenta,
            Fec_modificacion = SYSUTCDATETIME()
      WHERE Id_producto = @Id_producto
+       AND Activo      = 1
        AND RowVersion  = @RowVersion;
 
     IF @@ROWCOUNT = 0
     BEGIN
-        IF NOT EXISTS (SELECT 1 FROM dbo.Productos WHERE Id_producto = @Id_producto)
+        IF NOT EXISTS (SELECT 1 FROM dbo.Productos WHERE Id_producto = @Id_producto AND Activo = 1)
             THROW 50002, N'El producto no existe.', 1;
         THROW 50003, N'El producto fue modificado por otro usuario. Recargue e intente nuevamente.', 1;
     END;
@@ -132,6 +144,9 @@ BEGIN
 END;
 GO
 
+/* Eliminación LÓGICA: marca el producto como inactivo con fecha y usuario. Sus
+   compras, ventas y movimientos se conservan intactos (trazabilidad sanitaria).
+   No se permite mientras tenga stock: esas unidades quedarían sin producto activo. */
 CREATE OR ALTER PROCEDURE dbo.usp_Producto_Eliminar
     @Id_producto INT,
     @UsuarioId   NVARCHAR(64),
@@ -143,15 +158,25 @@ BEGIN
     EXEC dbo.usp_Contexto_Fijar @UsuarioId, @RequestId;
 
     BEGIN TRANSACTION;
-        IF NOT EXISTS (SELECT 1 FROM dbo.Productos WITH (UPDLOCK, HOLDLOCK) WHERE Id_producto = @Id_producto)
+        IF NOT EXISTS (SELECT 1 FROM dbo.Productos WITH (UPDLOCK, HOLDLOCK)
+                       WHERE Id_producto = @Id_producto AND Activo = 1)
             THROW 50002, N'El producto no existe.', 1;
 
-        IF EXISTS (SELECT 1 FROM dbo.MovimientoDet WHERE Id_Producto = @Id_producto)
-           OR EXISTS (SELECT 1 FROM dbo.CompraDet WHERE Id_producto = @Id_producto)
-           OR EXISTS (SELECT 1 FROM dbo.VentaDet  WHERE Id_producto = @Id_producto)
-            THROW 50005, N'No se puede eliminar: el producto tiene movimientos en el kardex.', 1;
+        DECLARE @Stock BIGINT = ISNULL((SELECT s.Stock FROM dbo.vw_StockProducto AS s WITH (NOEXPAND, READCOMMITTEDLOCK)
+                                        WHERE s.Id_Producto = @Id_producto), 0);
+        IF @Stock > 0
+        BEGIN
+            DECLARE @Msg NVARCHAR(200) = CONCAT(N'No se puede eliminar: el producto aún tiene ', @Stock,
+                                                N' unidades en stock. Véndalas o regularícelas antes de eliminarlo.');
+            THROW 50007, @Msg, 1;
+        END;
 
-        DELETE FROM dbo.Productos WHERE Id_producto = @Id_producto;
+        UPDATE dbo.Productos
+           SET Activo            = 0,
+               Fec_eliminacion   = SYSUTCDATETIME(),
+               Id_UsuarioElimina = @UsuarioId,
+               Fec_modificacion  = SYSUTCDATETIME()
+         WHERE Id_producto = @Id_producto;
     COMMIT TRANSACTION;
 END;
 GO
@@ -188,7 +213,7 @@ BEGIN
 
     SELECT COUNT_BIG(*) AS Total
     FROM dbo.Productos
-    WHERE @Patron IS NULL OR Nombre_producto LIKE @Patron OR NroLote LIKE @Patron
+    WHERE Activo = 1 AND (@Patron IS NULL OR Nombre_producto LIKE @Patron OR NroLote LIKE @Patron)
     OPTION (RECOMPILE);
 
     SELECT v.*
@@ -210,6 +235,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_Compra_Registrar
     @RequestHash    BINARY(32),
     @UsuarioId      NVARCHAR(64),
     @RequestId      NVARCHAR(64) = NULL,
+    @Eventos        NVARCHAR(MAX) = NULL, -- eventos de dominio (JSON) -> outbox
     @Id_CompraCab   INT          OUTPUT,
     @Resultado      VARCHAR(30)  OUTPUT
 AS
@@ -240,13 +266,18 @@ BEGIN
     END;
 
     BEGIN TRANSACTION;
-        /* 3. Bloqueo de productos (orden por PK) — serializa cambios de costo/precio. */
+        /* 3. Bloqueo de productos (orden por PK): serializa cambios de costo/precio. */
         DECLARE @Encontrados INT;
-        SELECT @Encontrados = COUNT(*)
-        FROM dbo.Productos AS p WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-        INNER JOIN @Lineas AS l ON l.Id_producto = p.Id_producto;
+        DECLARE @Bloqueo TABLE (Id_producto INT PRIMARY KEY);
+        INSERT INTO @Bloqueo (Id_producto)
+        SELECT p.Id_producto
+        FROM @Lineas AS l  -- TVP con PK clustered: se recorre en orden ascendente
+        INNER JOIN dbo.Productos AS p WITH (UPDLOCK, HOLDLOCK, ROWLOCK, FORCESEEK)
+            ON p.Id_producto = l.Id_producto AND p.Activo = 1
+        OPTION (LOOP JOIN, FORCE ORDER);
+        SET @Encontrados = @@ROWCOUNT;
         IF @Encontrados <> (SELECT COUNT(*) FROM @Lineas)
-            THROW 50002, N'Uno o más productos de la compra no existen.', 1;
+            THROW 50002, N'Uno o más productos de la compra no existen o fueron eliminados.', 1;
 
         /* 4. Cabecera + detalle */
         INSERT INTO dbo.CompraCab (SubTotal, Igv, Total, Id_Usuario, IdempotencyKey, RequestHash)
@@ -272,6 +303,13 @@ BEGIN
 
         INSERT INTO dbo.MovimientoDet (Id_movimientocab, Id_Producto, Cantidad)
         SELECT @Id_MovimientoCab, Id_producto, Cantidad FROM @Lineas;
+
+        /* Transactional Outbox: los eventos de dominio se confirman junto con el documento. */
+        IF @Eventos IS NOT NULL AND ISJSON(@Eventos) = 1
+            INSERT INTO dbo.OutboxEvento (Tipo, AgregadoId, Payload, OcurridoEn, RequestId)
+            SELECT e.Tipo, @Id_CompraCab, JSON_MODIFY(e.Payload, '$.documentoId', @Id_CompraCab), e.OcurridoEn, @RequestId
+            FROM OPENJSON(@Eventos)
+                 WITH (Tipo VARCHAR(100) '$.type', Payload NVARCHAR(MAX) '$.payload' AS JSON, OcurridoEn DATETIME2(3) '$.occurredAt') AS e;
     COMMIT TRANSACTION;
 END;
 GO
@@ -333,6 +371,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_Venta_Registrar
     @RequestHash    BINARY(32),
     @UsuarioId      NVARCHAR(64),
     @RequestId      NVARCHAR(64) = NULL,
+    @Eventos        NVARCHAR(MAX) = NULL, -- eventos de dominio (JSON) -> outbox
     @Id_VentaCab    INT         OUTPUT,
     @Resultado      VARCHAR(30) OUTPUT
 AS
@@ -367,13 +406,16 @@ BEGIN
     BEGIN TRANSACTION;
         /* 1. Lock pesimista de los productos vendidos: dos ventas concurrentes del
               mismo producto se serializan aquí -> imposible sobrevender. */
+        /* Orden de adquisición determinista (seek por PK ascendente) => sin deadlocks entre ventas. */
         INSERT INTO @Bloqueados (Id_producto, PrecioVenta)
         SELECT p.Id_producto, p.PrecioVenta
-        FROM dbo.Productos AS p WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-        INNER JOIN @Lineas AS l ON l.Id_producto = p.Id_producto;
+        FROM @Lineas AS l  -- TVP con PK clustered: seeks en orden ascendente de Id
+        INNER JOIN dbo.Productos AS p WITH (UPDLOCK, HOLDLOCK, ROWLOCK, FORCESEEK)
+            ON p.Id_producto = l.Id_producto AND p.Activo = 1
+        OPTION (LOOP JOIN, FORCE ORDER);
 
         IF (SELECT COUNT(*) FROM @Bloqueados) <> (SELECT COUNT(*) FROM @Lineas)
-            THROW 50002, N'Uno o más productos de la venta no existen.', 1;
+            THROW 50002, N'Uno o más productos de la venta no existen o fueron eliminados.', 1;
 
         /* 2. El precio lo fija el servidor; si cambió entre lectura y escritura -> conflicto. */
         INSERT INTO @Conflictos (Id_producto, StockDisponible, CantidadSolicitada, PrecioActual)
@@ -423,6 +465,13 @@ BEGIN
 
         INSERT INTO dbo.MovimientoDet (Id_movimientocab, Id_Producto, Cantidad)
         SELECT @Id_MovimientoCab, Id_producto, Cantidad FROM @Lineas;
+
+        /* Transactional Outbox: los eventos de dominio se confirman junto con el documento. */
+        IF @Eventos IS NOT NULL AND ISJSON(@Eventos) = 1
+            INSERT INTO dbo.OutboxEvento (Tipo, AgregadoId, Payload, OcurridoEn, RequestId)
+            SELECT e.Tipo, @Id_VentaCab, JSON_MODIFY(e.Payload, '$.documentoId', @Id_VentaCab), e.OcurridoEn, @RequestId
+            FROM OPENJSON(@Eventos)
+                 WITH (Tipo VARCHAR(100) '$.type', Payload NVARCHAR(MAX) '$.payload' AS JSON, OcurridoEn DATETIME2(3) '$.occurredAt') AS e;
     COMMIT TRANSACTION;
 END;
 GO
@@ -474,6 +523,24 @@ BEGIN
 END;
 GO
 
+/* ======================================================================= IDEMPOTENCIA
+   Consulta previa (antes de validar stock/reglas): un reintento con la misma
+   Idempotency-Key devuelve el documento original aunque el stock haya cambiado. */
+CREATE OR ALTER PROCEDURE dbo.usp_Documento_BuscarPorIdempotencia
+    @Tipo           CHAR(1),          -- 'C' compra | 'V' venta
+    @IdempotencyKey UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @Tipo = 'C'
+        SELECT Id_CompraCab AS Id, RequestHash FROM dbo.CompraCab WHERE IdempotencyKey = @IdempotencyKey;
+    ELSE IF @Tipo = 'V'
+        SELECT Id_VentaCab AS Id, RequestHash FROM dbo.VentaCab WHERE IdempotencyKey = @IdempotencyKey;
+    ELSE
+        THROW 50006, N'Tipo de documento inválido.', 1;
+END;
+GO
+
 /* ======================================================================= KARDEX */
 CREATE OR ALTER PROCEDURE dbo.usp_Kardex_Listar
     @Search   NVARCHAR(100) = NULL,
@@ -488,7 +555,7 @@ BEGIN
 
     SELECT COUNT_BIG(*) AS Total
     FROM dbo.Productos
-    WHERE @Patron IS NULL OR Nombre_producto LIKE @Patron OR NroLote LIKE @Patron
+    WHERE Activo = 1 AND (@Patron IS NULL OR Nombre_producto LIKE @Patron OR NroLote LIKE @Patron)
     OPTION (RECOMPILE);
 
     SELECT v.Id_producto, v.Nombre_producto, v.NroLote, v.Stock AS Stock_actual, v.Costo, v.PrecioVenta
@@ -527,7 +594,7 @@ BEGIN
                t.Descripcion AS TipoMovimiento,
                c.Id_DocumentoOrigen,
                d.Cantidad,
-               SUM(CASE WHEN c.Id_TipoMovimiento = 1 THEN d.Cantidad ELSE -d.Cantidad END)
+               SUM(CAST(CASE WHEN c.Id_TipoMovimiento = 1 THEN d.Cantidad ELSE -d.Cantidad END AS BIGINT))
                    OVER (ORDER BY c.Id_MovimientoCab ROWS UNBOUNDED PRECEDING) AS Saldo
         FROM dbo.MovimientoDet AS d
         INNER JOIN dbo.MovimientoCab  AS c ON c.Id_MovimientoCab = d.Id_movimientocab
@@ -538,5 +605,74 @@ BEGIN
     FROM Mov
     ORDER BY Id_MovimientoCab DESC
     OFFSET (@Page - 1) * @PageSize ROWS FETCH NEXT @PageSize ROWS ONLY;
+END;
+GO
+
+/* ======================================================================= OUTBOX (relay)
+   Seguro con N réplicas: cada evento se "arrienda" (BloqueadoHasta) con READPAST,
+   así dos relays nunca publican el mismo lote a la vez. Si un relay muere, el
+   arriendo vence y otro lo reintenta (entrega al menos una vez). */
+CREATE OR ALTER PROCEDURE dbo.usp_Outbox_Reclamar
+    @Lote            INT = 50,
+    @SegundosArriendo INT = 30,
+    @MaxIntentos     INT = 20
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET @Lote = CASE WHEN @Lote IS NULL OR @Lote < 1 THEN 50 WHEN @Lote > 500 THEN 500 ELSE @Lote END;
+    WITH Pendientes AS
+    (
+        SELECT TOP (@Lote) Id, EventoId, Tipo, AgregadoId, Payload, OcurridoEn, RequestId, Intentos, BloqueadoHasta
+        FROM dbo.OutboxEvento WITH (ROWLOCK, UPDLOCK, READPAST)
+        WHERE PublicadoEn IS NULL
+          AND Intentos < @MaxIntentos
+          AND (BloqueadoHasta IS NULL OR BloqueadoHasta < SYSUTCDATETIME())
+        ORDER BY Id
+    )
+    UPDATE Pendientes
+       SET BloqueadoHasta = DATEADD(SECOND, @SegundosArriendo, SYSUTCDATETIME()),
+           Intentos       = Intentos + 1
+    OUTPUT inserted.Id, inserted.EventoId, inserted.Tipo, inserted.AgregadoId, inserted.Payload,
+           inserted.OcurridoEn, inserted.RequestId;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.usp_Outbox_MarcarPublicados
+    @Ids NVARCHAR(MAX) -- arreglo JSON de Id (BIGINT)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF ISJSON(@Ids) <> 1 THROW 50006, N'Lista de eventos inválida.', 1;
+    UPDATE o
+       SET o.PublicadoEn = SYSUTCDATETIME(), o.BloqueadoHasta = NULL, o.UltimoError = NULL
+    FROM dbo.OutboxEvento AS o
+    INNER JOIN OPENJSON(@Ids) WITH (Id BIGINT '$') AS j ON j.Id = o.Id
+    WHERE o.PublicadoEn IS NULL;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.usp_Outbox_RegistrarFallo
+    @Id    BIGINT,
+    @Error NVARCHAR(400)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    /* Libera el arriendo con backoff (5 s × intentos) para el siguiente reintento. */
+    UPDATE dbo.OutboxEvento
+       SET UltimoError = LEFT(@Error, 400),
+           BloqueadoHasta = DATEADD(SECOND, 5 * Intentos, SYSUTCDATETIME())
+     WHERE Id = @Id AND PublicadoEn IS NULL;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.usp_Outbox_Purgar
+    @Dias INT = 7,
+    @Lote INT = 5000
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DELETE TOP (@Lote) FROM dbo.OutboxEvento
+    WHERE PublicadoEn IS NOT NULL AND PublicadoEn < DATEADD(DAY, -@Dias, SYSUTCDATETIME());
+    SELECT @@ROWCOUNT AS Eliminados;
 END;
 GO

@@ -3,3 +3,4 @@
 
 /* Tailwind v4 escanea el código de la app; los paquetes compartidos se declaran explícitamente. */
 @source '../../../../packages/ui/src';
+@source '../../../../packages/features/src';

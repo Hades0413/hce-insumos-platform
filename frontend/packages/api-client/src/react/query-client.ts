@@ -1,12 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { ApiError } from '../api-error';
 
-/**
- * Política de caché/reintentos:
- * - Solo se reintentan fallos transitorios (red / 5xx), nunca 4xx (no tiene sentido
- *   reintentar un 403 o un 422) — evita amplificar carga sobre el backend.
- * - staleTime moderado: reduce peticiones repetidas sin mostrar datos obsoletos.
- */
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {

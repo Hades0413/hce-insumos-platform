@@ -1,4 +1,4 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AppError } from '@hce/core';
 import { ErrorCode } from '@hce/contracts';
 import { Producto } from '../producto/producto';
 import { Money } from '../shared/money';

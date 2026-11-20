@@ -1,5 +1,5 @@
 import { BadRequestException, ParseIntPipe, ValidationError, ValidationPipe } from '@nestjs/common';
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { ErrorDetail } from '@hce/contracts';
 
 function flatten(errors: ValidationError[], parent = ''): ErrorDetail[] {
@@ -14,7 +14,6 @@ function flatten(errors: ValidationError[], parent = ''): ErrorDetail[] {
   });
 }
 
-/** Validación estricta de entrada (OWASP API3/API6: sin mass assignment, sin campos extra). */
 export function buildValidationPipe(): ValidationPipe {
   return new ValidationPipe({
     whitelist: true,
@@ -26,7 +25,6 @@ export function buildValidationPipe(): ValidationPipe {
   });
 }
 
-/** Id de ruta: entero positivo dentro de INT de SQL Server. */
 export class IdParamPipe extends ParseIntPipe {
   constructor() {
     super({ exceptionFactory: () => new BadRequestException('El identificador debe ser un entero positivo.') });

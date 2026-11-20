@@ -6,7 +6,6 @@ import { ProductoRepository } from '../../../domain/producto/producto.repository
 import { AuditContext, Pagina, Paginacion } from '../../../domain/shared/audit-context';
 import { ProductoRow, toProducto, totalFrom } from './row-mappers';
 
-/** Adaptador de salida: implementa el puerto ProductoRepository con SP de SQL Server. */
 @Injectable()
 export class MssqlProductoRepository implements ProductoRepository {
   constructor(private readonly db: MssqlExecutor) {}

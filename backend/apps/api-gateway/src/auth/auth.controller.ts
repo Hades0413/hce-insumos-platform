@@ -1,7 +1,8 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import { ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { JwtService } from '@nestjs/jwt';
 import { Throttle } from '@nestjs/throttler';
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { ClientInfo, ErrorCode, IssuedTokens, SessionDto } from '@hce/contracts';
 import type { Response } from 'express';
 import { ApiProblemResponses } from '../common/decorators/api-problem.decorator';
@@ -11,7 +12,7 @@ import { Auth } from '../common/decorators/roles.decorator';
 import { AuthCookiesService } from '../common/security/auth-cookies.service';
 import { AuthenticatedUser, GatewayRequest } from '../common/security/authenticated-user';
 import { COOKIE_NAMES } from '../common/security/cookies';
-import { CsrfTokenService } from '../common/security/csrf-token.service';
+import { ANONYMOUS_BINDING, CsrfTokenService } from '../common/security/csrf-token.service';
 import { LOGIN_THROTTLE, REFRESH_THROTTLE } from '../config/gateway.config';
 import { AuthFacade } from './auth.facade';
 import { CsrfResponse, LoginDto, SessionResponse } from './auth.dto';
@@ -23,6 +24,7 @@ export class AuthController {
     private readonly auth: AuthFacade,
     private readonly cookies: AuthCookiesService,
     private readonly csrf: CsrfTokenService,
+    private readonly jwt: JwtService,
   ) {}
 
   @Public()
@@ -30,8 +32,9 @@ export class AuthController {
   @ApiOperation({ summary: 'Obtiene el token CSRF (enviar luego en X-CSRF-Token)' })
   @ApiOkResponse({ type: CsrfResponse })
   getCsrf(@Req() req: GatewayRequest, @Res({ passthrough: true }) res: Response): CsrfResponse {
+    const binding = req.user?.sid ?? req.csrfBinding ?? ANONYMOUS_BINDING;
     const current = (req.cookies as Record<string, unknown> | undefined)?.[COOKIE_NAMES.CSRF];
-    const token = this.csrf.isValid(current) ? current : this.csrf.generate();
+    const token = this.csrf.isValid(current, binding) ? current : this.csrf.generate(binding);
     this.cookies.setCsrf(res, token);
     res.setHeader('Cache-Control', 'no-store');
     return { csrfToken: token };
@@ -49,8 +52,8 @@ export class AuthController {
     @Req() req: GatewayRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SessionDto> {
-    const tokens = await this.auth.login(dto.email, dto.password, clientInfo(req));
-    return this.startSession(res, tokens);
+    const tokens = await this.auth.login(dto.email, dto.password, clientInfo(req), { requestId: req.requestId });
+    return this.startSession(res, tokens, true);
   }
 
   @Public()
@@ -63,7 +66,10 @@ export class AuthController {
     const refreshToken = readRefreshCookie(req);
     if (!refreshToken) throw new AppError(ErrorCode.UNAUTHENTICATED, 'Sesión no iniciada.');
     try {
-      return this.startSession(res, await this.auth.refresh(refreshToken, clientInfo(req)));
+      return this.startSession(
+        res,
+        await this.auth.refresh(refreshToken, clientInfo(req), { requestId: req.requestId }),
+      );
     } catch (error: unknown) {
       if (error instanceof AppError && error.code === ErrorCode.UNAUTHENTICATED) this.cookies.clearSession(res);
       throw error;
@@ -78,7 +84,8 @@ export class AuthController {
   async logout(@Req() req: GatewayRequest, @Res({ passthrough: true }) res: Response): Promise<void> {
     const refreshToken = readRefreshCookie(req);
     this.cookies.clearSession(res);
-    if (refreshToken) await this.auth.logout(refreshToken);
+    this.cookies.clearCsrf(res);
+    if (refreshToken) await this.auth.logout(refreshToken, { requestId: req.requestId });
   }
 
   @Get('me')
@@ -87,13 +94,23 @@ export class AuthController {
   @ApiOkResponse({ type: SessionResponse })
   me(@CurrentUser() user: AuthenticatedUser): SessionDto {
     return {
-      user: { id: user.id, email: user.email, nombreCompleto: user.nombreCompleto, rol: user.rol },
+      user: {
+        id: user.id,
+        email: user.email,
+        nombreCompleto: user.nombreCompleto,
+        rol: user.rol,
+        permisos: user.permisos,
+      },
       accessTokenExpiresAt: new Date(user.exp * 1000).toISOString(),
     };
   }
 
-  private startSession(res: Response, tokens: IssuedTokens): SessionDto {
+  private startSession(res: Response, tokens: IssuedTokens, rotateCsrf = false): SessionDto {
     this.cookies.setSession(res, tokens);
+    if (rotateCsrf) {
+      const sid = this.jwt.decode<{ sid?: string } | null>(tokens.accessToken)?.sid;
+      if (sid) this.cookies.setCsrf(res, this.csrf.generate(sid));
+    }
     res.setHeader('Cache-Control', 'no-store');
     return { user: tokens.user, accessTokenExpiresAt: tokens.accessTokenExpiresAt };
   }

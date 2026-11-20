@@ -1,36 +1,22 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
-import { JwtModule } from '@nestjs/jwt';
-import { ClientsModule } from '@nestjs/microservices';
-import { TerminusModule } from '@nestjs/terminus';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { buildLoggerParams, natsClientOptions, splitCsv } from '@hce/common';
+import { buildLoggerParams } from '@hce/common';
 import { LoggerModule } from 'nestjs-pino';
-import { AuthController } from './auth/auth.controller';
-import { AuthFacade } from './auth/auth.facade';
+import { AdminModule } from './admin/admin.module';
+import { AuthModule } from './auth/auth.module';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
-import { CsrfGuard } from './common/guards/csrf.guard';
-import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
-import { RolesGuard } from './common/guards/roles.guard';
-import { AppThrottlerGuard } from './common/guards/throttler.guard';
+import { RequestTimeoutInterceptor } from './common/interceptors/timeout.interceptor';
+import { ContentTypeMiddleware } from './common/middleware/content-type.middleware';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
-import { AuthCookiesService } from './common/security/auth-cookies.service';
-import { CsrfTokenService } from './common/security/csrf-token.service';
-import { AUTH_CLIENT, decodePem, GatewayEnv, gatewayEnvSchema, INVENTORY_CLIENT } from './config/gateway.config';
-import { HealthController } from './health/health.controller';
-import { ComprasController } from './inventario/compras.controller';
-import { InventarioFacade } from './inventario/inventario.facade';
-import { KardexController } from './inventario/kardex.controller';
-import { ProductosController } from './inventario/productos.controller';
-import { VentasController } from './inventario/ventas.controller';
+import { SanitizeInputMiddleware } from './common/middleware/sanitize-input.middleware';
+import { GatewayEnv, gatewayEnvSchema } from './config/gateway.config';
+import { HealthModule } from './health/health.module';
+import { InventarioModule } from './inventario/inventario.module';
+import { MessagingModule } from './messaging/messaging.module';
 import { HttpMetricsMiddleware } from './metrics/http-metrics.middleware';
-
-const natsFromConfig = (c: ConfigService<GatewayEnv, true>) => ({
-  servers: splitCsv(c.get('NATS_SERVERS', { infer: true })),
-  user: c.get('NATS_USER', { infer: true }),
-  pass: c.get('NATS_PASSWORD', { infer: true }),
-});
+import { SecurityModule } from './security/security.module';
 
 @Module({
   imports: [
@@ -59,57 +45,22 @@ const natsFromConfig = (c: ConfigService<GatewayEnv, true>) => ({
         ],
       }),
     }),
-    JwtModule.registerAsync({
-      inject: [ConfigService],
-      useFactory: (c: ConfigService<GatewayEnv, true>) => ({
-        publicKey: decodePem(c.get('JWT_PUBLIC_KEY', { infer: true })),
-        verifyOptions: {
-          algorithms: ['ES256'],
-          issuer: c.get('JWT_ISSUER', { infer: true }),
-          audience: c.get('JWT_AUDIENCE', { infer: true }),
-          clockTolerance: 5,
-        },
-      }),
-    }),
-    ClientsModule.registerAsync([
-      {
-        name: AUTH_CLIENT,
-        inject: [ConfigService],
-        useFactory: (c: ConfigService<GatewayEnv, true>) =>
-          natsClientOptions(AUTH_CLIENT, natsFromConfig(c), 'api-gateway:auth'),
-      },
-      {
-        name: INVENTORY_CLIENT,
-        inject: [ConfigService],
-        useFactory: (c: ConfigService<GatewayEnv, true>) =>
-          natsClientOptions(INVENTORY_CLIENT, natsFromConfig(c), 'api-gateway:inventory'),
-      },
-    ]),
-    TerminusModule.forRoot({ errorLogStyle: 'pretty' }),
-  ],
-  controllers: [
-    AuthController,
-    ProductosController,
-    ComprasController,
-    VentasController,
-    KardexController,
-    HealthController,
+    SecurityModule,
+    MessagingModule,
+    AuthModule,
+    InventarioModule,
+    AdminModule,
+    HealthModule,
   ],
   providers: [
-    AuthFacade,
-    InventarioFacade,
-    AuthCookiesService,
-    CsrfTokenService,
-    // Orden de guards: rate limit -> CSRF -> autenticación -> autorización
-    { provide: APP_GUARD, useClass: AppThrottlerGuard },
-    { provide: APP_GUARD, useClass: CsrfGuard },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_FILTER, useClass: ProblemDetailsFilter },
+    { provide: APP_INTERCEPTOR, useFactory: () => new RequestTimeoutInterceptor(15_000) },
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware, HttpMetricsMiddleware).forRoutes('*path');
+    consumer
+      .apply(RequestIdMiddleware, HttpMetricsMiddleware, ContentTypeMiddleware, SanitizeInputMiddleware)
+      .forRoutes('*path');
   }
 }

@@ -1,6 +1,5 @@
 import type { DocumentoQuery, PageQuery, SearchQuery } from '../types';
 
-/** Fábrica centralizada de query keys: invalidaciones precisas y sin strings sueltos. */
 export const queryKeys = {
   session: ['session'] as const,
   productos: {
@@ -22,5 +21,11 @@ export const queryKeys = {
     all: ['kardex'] as const,
     list: (q: SearchQuery) => ['kardex', 'list', q] as const,
     movimientos: (productoId: number, q: PageQuery) => ['kardex', 'movimientos', productoId, q] as const,
+  },
+  admin: {
+    all: ['admin'] as const,
+    catalogo: ['admin', 'permisos'] as const,
+    usuarios: (q: SearchQuery) => ['admin', 'usuarios', q] as const,
+    permisosUsuario: (id: string) => ['admin', 'usuario', id, 'permisos'] as const,
   },
 } as const;

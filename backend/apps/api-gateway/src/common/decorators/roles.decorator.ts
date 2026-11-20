@@ -1,19 +1,15 @@
 import { applyDecorators, SetMetadata } from '@nestjs/common';
-import { ApiCookieAuth, ApiForbiddenResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
-import { Rol } from '@hce/contracts';
+import { ApiCookieAuth, ApiExtension, ApiForbiddenResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { Permiso } from '@hce/contracts';
 
-export const ROLES_KEY = 'roles';
-export const Roles = (...roles: Rol[]) => SetMetadata(ROLES_KEY, roles);
+export const PERMISOS_KEY = 'permisos';
 
-/**
- * Decorador compuesto (patrón Decorator vía applyDecorators): en una sola
- * anotación declara autorización por rol + su documentación OpenAPI.
- */
-export function Auth(...roles: Rol[]) {
+export function Auth(...permisos: Permiso[]) {
   return applyDecorators(
-    ...(roles.length ? [Roles(...roles)] : []),
+    SetMetadata(PERMISOS_KEY, permisos),
     ApiCookieAuth('hce_at'),
-    ApiUnauthorizedResponse({ description: 'Sin sesión o token vencido (UNAUTHENTICATED)' }),
-    ApiForbiddenResponse({ description: 'Rol sin permiso (FORBIDDEN) o CSRF inválido (CSRF_INVALID)' }),
+    ...(permisos.length ? [ApiExtension('x-permisos', permisos)] : []),
+    ApiUnauthorizedResponse({ description: 'Sin sesión, token vencido o PERMISSIONS_CHANGED (refrescar)' }),
+    ApiForbiddenResponse({ description: `Requiere: ${permisos.join(', ') || 'sesión'} (FORBIDDEN) o CSRF inválido` }),
   );
 }

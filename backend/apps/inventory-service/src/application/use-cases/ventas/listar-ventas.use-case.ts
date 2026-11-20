@@ -1,7 +1,7 @@
 import { DocumentoResumenDto, Paginated, RangoFechasQuery } from '@hce/contracts';
 import { normalizarPaginacion } from '../../../domain/shared/audit-context';
 import { VentaRepository } from '../../../domain/venta/venta.repository.port';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 import { validarRango } from '../rango-fechas';
 
 export class ListarVentasUseCase implements UseCase<RangoFechasQuery, Paginated<DocumentoResumenDto>> {

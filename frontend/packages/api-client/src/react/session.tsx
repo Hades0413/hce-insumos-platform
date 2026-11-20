@@ -1,13 +1,15 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
-import { tienePermiso, type Permiso, type Rol } from '@hce/domain';
-import { api } from '../client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, type ReactNode } from 'react';
+import { permisosEfectivos, tienePermiso, type Permiso } from '@hce/domain';
+import { api, subscribePermissionsChanged } from '../client';
+import { publishSessionEvent, subscribeSessionEvents } from '../session-channel';
 import { queryKeys } from './query-keys';
 import type { SessionDto } from '../types';
 
-/** Sesión actual (GET /auth/me). El rol viene del JWT validado por el gateway. */
+export const LOGGED_OUT_PATH = '/login?out=1';
+
 export function useSession() {
   return useQuery<SessionDto>({
     queryKey: queryKeys.session,
@@ -18,39 +20,51 @@ export function useSession() {
 }
 
 export function useLogout() {
+  return useMutation({
+    mutationFn: () => api.auth.logout(),
+    onSuccess: () => {
+      publishSessionEvent('logout');
+      window.location.assign(LOGGED_OUT_PATH);
+    },
+  });
+}
+
+export function useSessionSync(): void {
   const qc = useQueryClient();
-  return async () => {
-    try {
-      await api.auth.logout();
-    } finally {
-      qc.clear();
-      window.location.assign('/login');
-    }
-  };
+  useEffect(() => {
+    const refetchSession = () => void qc.invalidateQueries({ queryKey: queryKeys.session });
+    const offPermissions = subscribePermissionsChanged(refetchSession);
+    const offSession = subscribeSessionEvents((event) => {
+      if (event === 'logout') {
+        if (!window.location.pathname.startsWith('/login')) window.location.assign(LOGGED_OUT_PATH);
+      } else {
+        refetchSession();
+      }
+    });
+    return () => {
+      offPermissions();
+      offSession();
+    };
+  }, [qc]);
+}
+
+export function usePermisos(): ReadonlyArray<Permiso> | undefined {
+  const { data } = useSession();
+  return data ? permisosEfectivos(data.user) : undefined;
 }
 
 export function usePermiso(permiso: Permiso): boolean {
-  const { data } = useSession();
-  return tienePermiso(data?.user.rol, permiso);
+  return tienePermiso(usePermisos(), permiso);
 }
 
-interface RoleGateProps {
-  /** Permiso requerido (preferido) … */
-  permiso?: Permiso;
-  /** … o lista explícita de roles. */
-  roles?: ReadonlyArray<Rol>;
+interface CanProps {
+  permiso: Permiso;
   fallback?: ReactNode;
   children: ReactNode;
 }
 
-/**
- * Oculta UI según rol. ES SOLO UX: la autorización real la aplica el gateway
- * (OWASP A01 — nunca confiar en el control de acceso del cliente).
- */
-export function RoleGate({ permiso, roles, fallback = null, children }: RoleGateProps) {
-  const { data, isPending } = useSession();
-  if (isPending) return null;
-  const rol = data?.user.rol;
-  const allowed = permiso ? tienePermiso(rol, permiso) : roles ? rol !== undefined && roles.includes(rol) : true;
-  return <>{allowed ? children : fallback}</>;
+export function Can({ permiso, fallback = null, children }: CanProps) {
+  const permisos = usePermisos();
+  if (permisos === undefined) return null;
+  return <>{tienePermiso(permisos, permiso) ? children : fallback}</>;
 }

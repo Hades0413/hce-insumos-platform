@@ -1,11 +1,7 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AppError } from '@hce/core';
 
-const MAX_CENTS = 100_000_000_000; // 1.000 millones en moneda: límite sano de negocio
+const MAX_CENTS = 100_000_000_000;
 
-/**
- * Value Object monetario en CÉNTIMOS enteros: evita errores de coma flotante
- * (0.1 + 0.2) en importes. Inmutable.
- */
 export class Money {
   private constructor(readonly cents: number) {}
 
@@ -18,7 +14,6 @@ export class Money {
     return new Money(cents);
   }
 
-  /** Acepta como máximo 2 decimales (lo que almacena DECIMAL(18,2)). */
   static fromDecimal(value: number, field = 'importe'): Money {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
       throw AppError.validation(`El ${field} debe ser un número mayor o igual a 0.`, [
@@ -46,7 +41,6 @@ export class Money {
     return Money.fromCents(this.cents * quantity);
   }
 
-  /** Aplica una tasa en puntos básicos (1800 = 18%) con redondeo half-up al céntimo. */
   applyRate(basisPoints: number): Money {
     return Money.fromCents(Math.round((this.cents * basisPoints) / 10_000));
   }

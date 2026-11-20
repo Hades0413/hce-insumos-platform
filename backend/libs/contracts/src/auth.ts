@@ -1,3 +1,5 @@
+import type { Permiso } from './permissions';
+
 export const ROLES = ['ADMIN', 'ALMACENERO', 'FARMACEUTICO'] as const;
 export type Rol = (typeof ROLES)[number];
 
@@ -6,6 +8,7 @@ export interface UserDto {
   email: string;
   nombreCompleto: string;
   rol: Rol;
+  permisos: Permiso[];
 }
 
 export interface SessionDto {
@@ -13,13 +16,19 @@ export interface SessionDto {
   accessTokenExpiresAt: string;
 }
 
-/** Claims del access token (ES256, 30 min). */
 export interface AccessTokenClaims {
   sub: string;
   email: string;
   name: string;
   rol: Rol;
+  sid: string;
+  perms: Permiso[];
   jti: string;
+}
+
+export interface SessionRevokedEvent {
+  sid: string;
+  ttlSeconds: number;
 }
 
 export interface ClientInfo {
@@ -40,7 +49,6 @@ export interface LogoutRequest {
   refreshToken: string;
 }
 
-/** Respuesta interna auth-service -> gateway. Los tokens NUNCA llegan al JS del navegador. */
 export interface IssuedTokens {
   user: UserDto;
   accessToken: string;

@@ -1,30 +1,41 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Inject } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { MssqlExecutor } from '@hce/common';
-import { AUTH_PATTERNS, HealthDto, IssuedTokens, LoginRequest, LogoutRequest, RefreshRequest } from '@hce/contracts';
-import { AuthUseCases } from '../../application/auth.use-cases';
+import {
+  AnonymousEnvelope,
+  AUTH_PATTERNS,
+  HealthDto,
+  IssuedTokens,
+  LoginRequest,
+  LogoutRequest,
+  RefreshRequest,
+  TraceContext,
+} from '@hce/contracts';
+import { UseCase } from '@hce/core';
+import { USE_CASES } from '../../application/ports/tokens';
 
-/** Adaptador de entrada NATS. Solo accesible por el usuario NATS del gateway (permisos en nats.conf). */
 @Controller()
 export class AuthNatsController {
   constructor(
-    private readonly auth: AuthUseCases,
+    @Inject(USE_CASES.LOGIN) private readonly login: UseCase<LoginRequest, IssuedTokens, TraceContext>,
+    @Inject(USE_CASES.REFRESH_SESSION) private readonly refresh: UseCase<RefreshRequest, IssuedTokens, TraceContext>,
+    @Inject(USE_CASES.LOGOUT) private readonly logout: UseCase<LogoutRequest, void, TraceContext>,
     private readonly db: MssqlExecutor,
   ) {}
 
   @MessagePattern(AUTH_PATTERNS.LOGIN)
-  login(@Payload() data: LoginRequest): Promise<IssuedTokens> {
-    return this.auth.login(data);
+  onLogin(@Payload() msg: AnonymousEnvelope<LoginRequest>): Promise<IssuedTokens> {
+    return this.login.execute(msg?.data, ctxOf(msg));
   }
 
   @MessagePattern(AUTH_PATTERNS.REFRESH)
-  refresh(@Payload() data: RefreshRequest): Promise<IssuedTokens> {
-    return this.auth.refresh(data);
+  onRefresh(@Payload() msg: AnonymousEnvelope<RefreshRequest>): Promise<IssuedTokens> {
+    return this.refresh.execute(msg?.data, ctxOf(msg));
   }
 
   @MessagePattern(AUTH_PATTERNS.LOGOUT)
-  async logout(@Payload() data: LogoutRequest): Promise<{ ok: true }> {
-    await this.auth.logout(data);
+  async onLogout(@Payload() msg: AnonymousEnvelope<LogoutRequest>): Promise<{ ok: true }> {
+    await this.logout.execute(msg?.data, ctxOf(msg));
     return { ok: true };
   }
 
@@ -37,4 +48,9 @@ export class AuthNatsController {
       return { status: 'down', database: 'down' };
     }
   }
+}
+
+function ctxOf(msg: AnonymousEnvelope<unknown> | undefined): TraceContext {
+  const requestId = msg?.ctx?.requestId;
+  return { requestId: typeof requestId === 'string' ? requestId.slice(0, 64) : 'n/a' };
 }

@@ -1,8 +1,8 @@
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { IdRequest, VentaDetalleDto } from '@hce/contracts';
 import { validarId } from '../../../domain/shared/cantidad';
 import { VentaRepository } from '../../../domain/venta/venta.repository.port';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 
 export class ObtenerVentaUseCase implements UseCase<IdRequest, VentaDetalleDto> {
   constructor(private readonly ventas: VentaRepository) {}

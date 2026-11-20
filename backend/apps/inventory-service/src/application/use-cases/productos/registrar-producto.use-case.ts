@@ -2,7 +2,7 @@ import { CrearProductoRequest, ProductoDto, RequestContext } from '@hce/contract
 import { Producto } from '../../../domain/producto/producto';
 import { ProductoRepository } from '../../../domain/producto/producto.repository.port';
 import { PoliticaPrecios } from '../../../domain/shared/politica-precios';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 import { toProductoDto } from '../../presenters';
 
 export class RegistrarProductoUseCase implements UseCase<CrearProductoRequest, ProductoDto> {

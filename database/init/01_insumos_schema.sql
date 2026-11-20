@@ -1,5 +1,5 @@
 /* =============================================================================
-   01_insumos_schema.sql — Modelo de datos de control de medicamentos / insumos
+   01_insumos_schema.sql: Modelo de datos de control de medicamentos / insumos
    Base: HCE_Insumos. Idempotente.
 
    Decisiones:
@@ -58,13 +58,20 @@ BEGIN
         PrecioVenta      DECIMAL(18, 2)     NOT NULL CONSTRAINT DF_Productos_PrecioVenta DEFAULT (0),
         Id_Usuario       NVARCHAR(64)       NULL,
         Fec_modificacion DATETIME2(3)       NULL,
+        Activo           BIT                NOT NULL CONSTRAINT DF_Productos_Activo DEFAULT (1),
+        Fec_eliminacion  DATETIME2(3)       NULL,
+        Id_UsuarioElimina NVARCHAR(64)      NULL,
         RowVersion       ROWVERSION         NOT NULL,
         CONSTRAINT CK_Productos_Costo        CHECK (Costo >= 0),
         CONSTRAINT CK_Productos_PrecioVenta  CHECK (PrecioVenta >= 0),
         CONSTRAINT CK_Productos_Nombre       CHECK (LEN(LTRIM(RTRIM(Nombre_producto))) >= 2),
         CONSTRAINT CK_Productos_NroLote      CHECK (LEN(LTRIM(RTRIM(NroLote))) >= 1),
-        CONSTRAINT UQ_Productos_Nombre_Lote  UNIQUE (Nombre_producto, NroLote)
+        CONSTRAINT CK_Productos_Eliminacion  CHECK ((Activo = 1 AND Fec_eliminacion IS NULL)
+                                                 OR (Activo = 0 AND Fec_eliminacion IS NOT NULL))
     );
+    /* Eliminación lógica: el producto se conserva (kardex, compras y ventas lo
+       referencian). Nombre + lote son únicos solo entre productos activos. */
+    CREATE UNIQUE INDEX UX_Productos_Nombre_Lote ON dbo.Productos (Nombre_producto, NroLote) WHERE Activo = 1;
 END
 GO
 
@@ -194,7 +201,7 @@ BEGIN
     WITH SCHEMABINDING
     AS
     SELECT d.Id_Producto,
-           SUM(CASE WHEN c.Id_TipoMovimiento = 1 THEN d.Cantidad ELSE -d.Cantidad END) AS Stock,
+           SUM(CAST(CASE WHEN c.Id_TipoMovimiento = 1 THEN d.Cantidad ELSE -d.Cantidad END AS BIGINT)) AS Stock, -- BIGINT: sin overflow
            COUNT_BIG(*) AS NroMovimientos
     FROM dbo.MovimientoDet AS d
     INNER JOIN dbo.MovimientoCab AS c ON c.Id_MovimientoCab = d.Id_movimientocab
@@ -230,6 +237,33 @@ IF TYPE_ID(N'dbo.tt_LineaVenta') IS NULL
 GO
 IF TYPE_ID(N'dbo.tt_Ids') IS NULL
     CREATE TYPE dbo.tt_Ids AS TABLE (Id INT NOT NULL PRIMARY KEY);
+GO
+
+/* ---------------------------------------------------------------- Transactional Outbox
+   Eventos de dominio guardados en la misma transacción que el documento que los
+   origina; un relay los publica después en el bus (NATS). Garantiza que nunca se
+   publique un evento de una transacción revertida ni se pierda uno confirmado. */
+IF OBJECT_ID(N'dbo.OutboxEvento', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.OutboxEvento
+    (
+        Id             BIGINT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_OutboxEvento PRIMARY KEY CLUSTERED,
+        EventoId       UNIQUEIDENTIFIER      NOT NULL CONSTRAINT DF_OutboxEvento_EventoId DEFAULT (NEWID())
+                                                       CONSTRAINT UQ_OutboxEvento_EventoId UNIQUE,
+        Tipo           VARCHAR(100)          NOT NULL,
+        AgregadoId     INT                   NOT NULL,
+        Payload        NVARCHAR(MAX)         NOT NULL CONSTRAINT CK_OutboxEvento_Payload CHECK (ISJSON(Payload) = 1),
+        OcurridoEn     DATETIME2(3)          NOT NULL,
+        RequestId      NVARCHAR(64)          NULL,
+        PublicadoEn    DATETIME2(3)          NULL,
+        Intentos       INT                   NOT NULL CONSTRAINT DF_OutboxEvento_Intentos DEFAULT (0),
+        BloqueadoHasta DATETIME2(3)          NULL,
+        UltimoError    NVARCHAR(400)         NULL
+    );
+    /* Solo los pendientes (índice filtrado pequeño => lectura del relay O(pendientes)). */
+    CREATE INDEX IX_OutboxEvento_Pendientes ON dbo.OutboxEvento (Id) INCLUDE (BloqueadoHasta, Intentos)
+        WHERE PublicadoEn IS NULL;
+END
 GO
 
 /* ---------------------------------------------------------------- Auditoría (append-only) */

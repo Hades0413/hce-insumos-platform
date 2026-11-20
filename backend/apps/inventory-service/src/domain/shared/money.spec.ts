@@ -1,4 +1,4 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AppError } from '@hce/core';
 import { Money } from './money';
 import { PoliticaPrecios } from './politica-precios';
 
@@ -15,8 +15,8 @@ describe('Money', () => {
   });
 
   it('aplica tasas con redondeo half-up al céntimo', () => {
-    expect(Money.fromDecimal(0.81).applyRate(1800).toDecimal()).toBe(0.15); // 0.1458 -> 0.15
-    expect(Money.fromCents(25).applyRate(1800).cents).toBe(5); // 4.5 -> 5
+    expect(Money.fromDecimal(0.81).applyRate(1800).toDecimal()).toBe(0.15);
+    expect(Money.fromCents(25).applyRate(1800).cents).toBe(5);
   });
 });
 

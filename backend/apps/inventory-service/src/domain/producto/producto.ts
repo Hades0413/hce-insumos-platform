@@ -1,4 +1,4 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AppError } from '@hce/core';
 import { Money } from '../shared/money';
 import { PoliticaPrecios } from '../shared/politica-precios';
 
@@ -18,7 +18,6 @@ export interface ProductoProps {
   readonly rowVersion: string;
 }
 
-/** Datos validados para crear/actualizar un producto (aún sin identidad persistida). */
 export interface DatosProducto {
   readonly nombre: string;
   readonly nroLote: string;
@@ -26,7 +25,6 @@ export interface DatosProducto {
   readonly precioVenta: Money;
 }
 
-/** Entidad Producto (medicamento/insumo identificado por nombre + lote). */
 export class Producto {
   private constructor(private readonly props: ProductoProps) {}
 
@@ -34,10 +32,6 @@ export class Producto {
     return new Producto(props);
   }
 
-  /**
-   * Normaliza y valida datos de producto. Si no se informa precio de venta se
-   * deriva del costo con la política de precios (costo × 1.35).
-   */
   static preparar(
     input: { nombre: unknown; nroLote: unknown; costo?: unknown; precioVenta?: unknown },
     politica: PoliticaPrecios,

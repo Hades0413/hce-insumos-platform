@@ -69,8 +69,8 @@ jobs:
         run: |
           for run in 1 2; do
             docker run --rm --network host -v "$PWD/database:/scripts:ro" \
-              -e MSSQL_SA_PASSWORD='Ci_Only_Pass_123!' -e INSUMOS_DB_PASSWORD='Ci_Insumos_Pass_1!' \
-              -e AUTH_DB_PASSWORD='Ci_Auth_Pass_1!' -e DB_HOST=localhost \
+              -e MSSQL_SA_PASSWORD='Ci_Only_Pass_123!' -e INSUMOS_DB_PASSWORD='Ci_Insumos_Pass_1234!' \
+              -e AUTH_DB_PASSWORD='Ci_Auth_Pass_12345!' -e DB_HOST=localhost \
               mcr.microsoft.com/mssql/server:2022-latest bash /scripts/scripts/init-db.sh
           done
       - name: Consultas T-SQL de verificación

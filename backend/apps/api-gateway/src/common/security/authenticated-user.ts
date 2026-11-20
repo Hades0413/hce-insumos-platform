@@ -1,4 +1,4 @@
-import { Rol } from '@hce/contracts';
+import { Permiso, Rol } from '@hce/contracts';
 import type { Request } from 'express';
 
 export interface AuthenticatedUser {
@@ -6,12 +6,15 @@ export interface AuthenticatedUser {
   email: string;
   nombreCompleto: string;
   rol: Rol;
-  /** exp del JWT en epoch segundos */
+  permisos: Permiso[];
+  iat: number;
+  sid: string;
   exp: number;
 }
 
 export interface GatewayRequest extends Request {
   user?: AuthenticatedUser;
+  csrfBinding?: string;
   requestId: string;
   idempotencyKey?: string;
 }

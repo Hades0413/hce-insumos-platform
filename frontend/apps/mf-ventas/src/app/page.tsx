@@ -1,17 +1,18 @@
 import type { Metadata } from 'next';
-import { RoleGate } from '@hce/api-client/react';
-import { Alert, PageHeader } from '@hce/ui';
+import { RequirePermiso } from '@hce/features';
+import { PageHeader } from '@hce/ui';
 import { VentaForm } from '@/features/ventas/VentaForm';
 
 export const metadata: Metadata = { title: 'Registrar venta' };
 
 export default function RegistrarVentaPage() {
   return (
-    <>
-      <PageHeader title="Registrar venta" description="Dispensación de medicamentos e insumos (movimiento de SALIDA). El precio lo fija el sistema." />
-      <RoleGate permiso="ventas:registrar" fallback={<Alert tone="warn" title="Tu rol no puede registrar ventas">Puedes consultar el historial.</Alert>}>
-        <VentaForm />
-      </RoleGate>
-    </>
+    <RequirePermiso permiso="ventas.registrar">
+      <PageHeader
+        title="Registrar venta"
+        description="Dispensación de medicamentos e insumos. El precio lo fija el sistema y cada venta descuenta stock en el kardex."
+      />
+      <VentaForm />
+    </RequirePermiso>
   );
 }

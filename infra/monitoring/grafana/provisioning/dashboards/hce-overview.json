@@ -1,6 +1,6 @@
 {
   "uid": "hce-overview",
-  "title": "HCE Insumos — Visión general",
+  "title": "HCE Insumos: visión general",
   "schemaVersion": 39,
   "time": { "from": "now-1h", "to": "now" },
   "refresh": "10s",

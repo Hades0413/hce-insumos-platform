@@ -1,11 +1,11 @@
 /* =============================================================================
-   02_insumos_audit.sql — Triggers de auditoría e inmutabilidad
+   02_insumos_audit.sql: Triggers de auditoría e inmutabilidad
    Base: HCE_Insumos. Idempotente (CREATE OR ALTER).
 
    - Auditoría genérica: un generador (DRY) crea un trigger AFTER por tabla que
-     registra en audit.Auditoria la fila ANTES y DESPUÉS en JSON, el usuario de
+     registra en audit.Auditoria la fila antes y después en JSON, el usuario de
      negocio (SESSION_CONTEXT 'user_id', fijado por los SP en cada llamada; con
-     pool de conexiones NO se puede confiar en el login de BD) y el request-id
+     pool de conexiones no se puede confiar en el login de BD) y el request-id
      para correlacionar con los logs de la API.
    - Set-based: soporta operaciones multi-fila (nunca asume 1 fila en inserted).
    - Documentos (compras, ventas) y movimientos son INMUTABLES: un kardex no se

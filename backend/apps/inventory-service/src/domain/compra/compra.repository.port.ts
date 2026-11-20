@@ -16,7 +16,13 @@ export interface RangoFechas {
   readonly hasta?: string;
 }
 
+export interface RegistroIdempotente {
+  readonly id: number;
+  readonly requestHash: Buffer;
+}
+
 export interface CompraRepository {
+  buscarPorIdempotencia(idempotencyKey: string): Promise<RegistroIdempotente | null>;
   registrar(compra: Compra, meta: MetadatosIdempotencia, ctx: AuditContext): Promise<ResultadoRegistroCompra>;
   obtener(id: number): Promise<CompraDetalleDto | null>;
   listar(rango: RangoFechas, paginacion: Paginacion): Promise<Pagina<DocumentoResumenDto>>;

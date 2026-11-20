@@ -3,68 +3,49 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { api, ApiError } from '@hce/api-client';
+import { api, publishSessionEvent } from '@hce/api-client';
 import { safeNextPath } from '@hce/domain';
 import { Alert, Button, Input, Spinner } from '@hce/ui';
+import { loginErrorMessage } from './messages';
 import { loginSchema, type LoginValues } from './schema';
-
-function mensajeError(err: ApiError): string {
-  switch (err.status) {
-    case 401:
-      return 'Correo o contraseña incorrectos.';
-    case 423:
-      return err.message || 'Tu cuenta está bloqueada temporalmente por intentos fallidos.';
-    case 429:
-      return `Demasiados intentos. Espera ${err.retryAfterSeconds ?? 60} segundos e inténtalo de nuevo.`;
-    default:
-      return err.message;
-  }
-}
+import { useSessionProbe } from './useSessionProbe';
 
 export function LoginForm() {
   const params = useSearchParams();
   const next = safeNextPath(params.get('next'));
-  const [checking, setChecking] = useState(true);
+  const loggedOut = params.get('out') === '1';
+  const { checking } = useSessionProbe(next, loggedOut);
 
-  // Si el access token expiró pero el refresh (cookie HttpOnly) sigue vigente,
-  // se recupera la sesión sin pedir credenciales.
-  useEffect(() => {
-    let cancelled = false;
-    api.auth
-      .refresh()
-      .then(() => {
-        if (!cancelled) window.location.replace(next);
-      })
-      .catch(() => {
-        if (!cancelled) setChecking(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [next]);
-
-  const form = useForm<LoginValues>({ resolver: zodResolver(loginSchema), defaultValues: { email: '', password: '' } });
+  const form = useForm<LoginValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: '', password: '' },
+  });
   const mutation = useMutation({
     mutationFn: (values: LoginValues) => api.auth.login(values),
-    onSuccess: () => window.location.assign(next),
+    onSuccess: () => {
+      publishSessionEvent('login');
+      window.location.assign(next);
+    },
     onError: () => form.resetField('password'),
   });
 
   if (checking) {
     return (
-      <div className="flex items-center justify-center gap-3 py-10 text-muted">
-        <Spinner /> Verificando sesión…
-      </div>
+      <p role="status" className="flex items-center gap-3 py-6 text-muted">
+        <Spinner className="text-brand-600" /> Comprobando si ya tienes una sesión abierta…
+      </p>
     );
   }
 
-  const error = mutation.error ? ApiError.from(mutation.error) : null;
-
   return (
     <form noValidate onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="flex flex-col gap-4">
-      {error && <Alert title="No se pudo iniciar sesión">{mensajeError(error)}</Alert>}
+      {loggedOut && !mutation.error && (
+        <Alert tone="ok" title="Cerraste sesión">
+          Tu sesión se cerró en este equipo.
+        </Alert>
+      )}
+      {mutation.error && <Alert title="No pudimos iniciar tu sesión">{loginErrorMessage(mutation.error)}</Alert>}
       <Input
         label="Correo institucional"
         type="email"
@@ -81,7 +62,7 @@ export function LoginForm() {
         error={form.formState.errors.password?.message}
         {...form.register('password')}
       />
-      <Button type="submit" size="lg" loading={mutation.isPending} className="mt-2 w-full">
+      <Button type="submit" size="lg" loading={mutation.isPending} success={mutation.isSuccess} className="mt-2 w-full">
         Ingresar
       </Button>
     </form>

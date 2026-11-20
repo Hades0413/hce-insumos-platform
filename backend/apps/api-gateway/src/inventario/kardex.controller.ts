@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiParam, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { KardexItemDto, KardexMovimientosDto, Paginated, RequestContext } from '@hce/contracts';
 import { ApiProblemResponses } from '../common/decorators/api-problem.decorator';
 import { ReqContext } from '../common/decorators/current-user.decorator';
@@ -14,7 +14,7 @@ export class KardexController {
   constructor(private readonly inventario: InventarioFacade) {}
 
   @Get()
-  @Auth()
+  @Auth('kardex.ver')
   @ApiOperation({ summary: 'Listar Kardex (Id_producto, nombre, stock actual, costo, precio venta)' })
   @ApiOkResponse({ description: 'Paginated<KardexItemDto>' })
   listar(@Query() query: SearchQueryDto, @ReqContext() ctx: RequestContext): Promise<Paginated<KardexItemDto>> {
@@ -22,7 +22,8 @@ export class KardexController {
   }
 
   @Get(':productoId/movimientos')
-  @Auth()
+  @ApiParam({ name: 'productoId', example: 1 })
+  @Auth('kardex.ver')
   @ApiOperation({ summary: 'Movimientos de un producto (fecha, tipo, cantidad, saldo)' })
   @ApiOkResponse({ description: 'KardexMovimientosDto' })
   @ApiProblemResponses(404)

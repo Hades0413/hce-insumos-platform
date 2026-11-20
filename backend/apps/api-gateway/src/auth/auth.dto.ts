@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
-import { ROLES, Rol, SessionDto, UserDto } from '@hce/contracts';
+import { PERMISOS, Permiso, ROLES, Rol, SessionDto, UserDto } from '@hce/contracts';
 
 export class LoginDto {
   @ApiProperty({ example: 'admin@hce.local' })
@@ -20,6 +20,8 @@ export class UserResponse implements UserDto {
   @ApiProperty() email: string;
   @ApiProperty() nombreCompleto: string;
   @ApiProperty({ enum: ROLES }) rol: Rol;
+  @ApiProperty({ enum: PERMISOS, isArray: true, description: 'Permisos efectivos (rol + excepciones)' })
+  permisos: Permiso[];
 }
 
 export class SessionResponse implements SessionDto {

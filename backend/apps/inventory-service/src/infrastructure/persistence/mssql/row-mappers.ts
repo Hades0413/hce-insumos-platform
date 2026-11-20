@@ -8,7 +8,6 @@ import {
 import { Producto } from '../../../domain/producto/producto';
 import { Money } from '../../../domain/shared/money';
 
-/** Conversión explícita fila SQL -> modelo (nunca se exponen filas crudas). */
 export const dec = (value: unknown): number => Math.round(Number(value) * 100) / 100;
 const iso = (value: unknown): string => (value instanceof Date ? value : new Date(String(value))).toISOString();
 

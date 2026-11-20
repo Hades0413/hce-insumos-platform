@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start --port 3000",
     "lint": "eslint .",
-    "typecheck": "next typegen && tsc -p tsconfig.json --noEmit"
+    "typecheck": "next typegen && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hce/api-client": "workspace:*",
@@ -21,7 +22,8 @@
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-hook-form": "7.91.0",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@hce/features": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.4",

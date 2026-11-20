@@ -1,4 +1,4 @@
-import { AppError } from '@hce/common/errors/app-error';
+import { AppError } from '@hce/core';
 import { Money } from './money';
 
 export const MAX_LINEAS_POR_DOCUMENTO = 100;
@@ -24,7 +24,6 @@ export function totalizar(lineas: readonly LineaDocumento[]): TotalesDocumento {
   return { subTotal, igv, total: subTotal.add(igv) };
 }
 
-/** Invariantes comunes de un documento (compra/venta): 1..100 líneas, sin productos repetidos. */
 export function validarEstructura(items: unknown, tipo: string): asserts items is readonly { productoId: number }[] {
   if (!Array.isArray(items) || items.length === 0) {
     throw AppError.validation(`La ${tipo} debe tener al menos un producto.`, [

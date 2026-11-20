@@ -1,10 +1,7 @@
-/**
- * Códigos de error de negocio/técnicos compartidos. Los microservicios NO conocen
- * HTTP: emiten un código; el API Gateway lo traduce a status HTTP (RFC 7807).
- */
 export const ErrorCode = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   UNAUTHENTICATED: 'UNAUTHENTICATED',
+  PERMISSIONS_CHANGED: 'PERMISSIONS_CHANGED',
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   FORBIDDEN: 'FORBIDDEN',
   CSRF_INVALID: 'CSRF_INVALID',
@@ -27,6 +24,7 @@ export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 export const ERROR_HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   VALIDATION_ERROR: 400,
   UNAUTHENTICATED: 401,
+  PERMISSIONS_CHANGED: 401,
   INVALID_CREDENTIALS: 401,
   FORBIDDEN: 403,
   CSRF_INVALID: 403,
@@ -51,7 +49,6 @@ export interface ErrorDetail {
   readonly [key: string]: unknown;
 }
 
-/** Payload serializable que cruza NATS dentro de una RpcException. */
 export interface RpcErrorPayload {
   readonly code: ErrorCode;
   readonly message: string;

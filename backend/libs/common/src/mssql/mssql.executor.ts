@@ -2,24 +2,15 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ErrorCode } from '@hce/contracts';
 import * as sql from 'mssql';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { AppError } from '../errors/app-error';
+import { AppError } from '@hce/core';
 import { MSSQL_POOL, SQL_BUSINESS_ERRORS, SQL_TRANSIENT_ERRORS, SQL_UNIQUE_VIOLATION } from './mssql.constants';
 
 export type RequestBinder = (request: sql.Request) => void;
 
 export interface ExecuteOptions {
-  /** Reintentos ante errores transitorios (deadlock 1205, etc.). Default 3. */
   readonly maxRetries?: number;
 }
 
-/**
- * Único punto de acceso a SQL Server para los adaptadores de persistencia.
- * - Solo ejecuta PROCEDIMIENTOS ALMACENADOS con parámetros tipados
- *   (imposible concatenar SQL => sin inyección, OWASP A03).
- * - Reintenta con backoff exponencial + jitter ante deadlocks/transitorios.
- * - Traduce errores THROW 50xxx de los SP a AppError (sin filtrar detalles
- *   internos del motor hacia el cliente).
- */
 @Injectable()
 export class MssqlExecutor {
   private readonly logger = new Logger(MssqlExecutor.name);
@@ -53,7 +44,6 @@ export class MssqlExecutor {
     }
   }
 
-  /** Para health checks: no toca tablas (compatible con login de solo EXECUTE). */
   async ping(): Promise<void> {
     await this.pool.request().query('SELECT 1 AS ok');
   }
@@ -80,6 +70,7 @@ function translateSqlError(error: unknown, procedure: string, logger: Logger): u
     case SQL_BUSINESS_ERRORS.HAS_MOVEMENTS:
       return new AppError(ErrorCode.HAS_MOVEMENTS, message);
     case SQL_BUSINESS_ERRORS.INVALID_DOCUMENT:
+    case SQL_BUSINESS_ERRORS.PRODUCTO_CON_STOCK:
     case SQL_BUSINESS_ERRORS.INMUTABLE:
       return new AppError(ErrorCode.BUSINESS_RULE, message);
     default:

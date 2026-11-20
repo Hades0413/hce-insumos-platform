@@ -4,9 +4,10 @@ import { ProductoRepository } from '../../../domain/producto/producto.repository
 import { Money } from '../../../domain/shared/money';
 import { PoliticaPrecios } from '../../../domain/shared/politica-precios';
 import { VentaRepository } from '../../../domain/venta/venta.repository.port';
+import { hashItems } from '../../request-hash';
 import { RegistrarVentaUseCase } from './registrar-venta.use-case';
 
-const ctx: RequestContext = { userId: 'u1', rol: 'FARMACEUTICO', requestId: 'req-1' };
+const ctx: RequestContext = { userId: 'u1', rol: 'FARMACEUTICO', permisos: [], requestId: 'req-1' };
 const IDEMPOTENCY_UUID = crypto.randomUUID();
 const producto = (precio: number, stock = 10) =>
   Producto.rehidratar({
@@ -26,6 +27,7 @@ function setup() {
     registrar: jest.fn(),
     obtener: jest.fn(),
     listar: jest.fn(),
+    buscarPorIdempotencia: jest.fn().mockResolvedValue(null),
   } as unknown as jest.Mocked<VentaRepository>;
   const useCase = new RegistrarVentaUseCase(productos, ventas, PoliticaPrecios.fromRates(0.18, 0.35));
   return { productos, ventas, useCase };
@@ -60,6 +62,25 @@ describe('RegistrarVentaUseCase', () => {
     ).rejects.toMatchObject({
       code: ErrorCode.STOCK_INSUFICIENTE,
       details: [expect.objectContaining({ field: 'items[0].cantidad', stockDisponible: 0 })],
+    });
+  });
+
+  it('reintento con la misma key devuelve la venta original aunque ya no haya stock (INV-IDEM-01)', async () => {
+    const { productos, ventas, useCase } = setup();
+    const items = [{ productoId: 1, cantidad: 5 }];
+    ventas.buscarPorIdempotencia.mockResolvedValue({ id: 3, requestHash: hashItems(items, ctx.userId) });
+    ventas.obtener.mockResolvedValue({ id: 3 } as never);
+    await expect(useCase.execute({ idempotencyKey: IDEMPOTENCY_UUID, items }, ctx)).resolves.toEqual({ id: 3 });
+    expect(productos.obtenerPorIds).not.toHaveBeenCalled();
+    expect(ventas.registrar).not.toHaveBeenCalled();
+  });
+
+  it('la misma key usada por OTRO usuario es conflicto (no devuelve documentos ajenos)', async () => {
+    const { ventas, useCase } = setup();
+    const items = [{ productoId: 1, cantidad: 5 }];
+    ventas.buscarPorIdempotencia.mockResolvedValue({ id: 3, requestHash: hashItems(items, 'otro-usuario') });
+    await expect(useCase.execute({ idempotencyKey: IDEMPOTENCY_UUID, items }, ctx)).rejects.toMatchObject({
+      code: ErrorCode.IDEMPOTENCY_CONFLICT,
     });
   });
 

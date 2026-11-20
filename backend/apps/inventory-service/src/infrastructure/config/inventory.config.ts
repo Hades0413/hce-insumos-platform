@@ -26,6 +26,8 @@ export interface InventoryEnv {
   DB_POOL_MAX: number;
   DB_POOL_MIN: number;
   DB_REQUEST_TIMEOUT_MS: number;
+  DB_TLS_CA_FILE?: string;
+  NATS_TLS_CA_FILE?: string;
   IGV_RATE: number;
   MARGEN_VENTA: number;
 }

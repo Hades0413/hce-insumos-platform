@@ -1,13 +1,17 @@
-'use client';
+import type { Metadata } from 'next';
+import { DocumentoHistorial, RequirePermiso } from '@hce/features';
+import { PageHeader } from '@hce/ui';
 
-import { api } from '@hce/api-client';
-import { DocumentoList, PageHeader } from '@hce/ui';
+export const metadata: Metadata = { title: 'Historial de compras' };
 
 export default function HistorialComprasPage() {
   return (
-    <>
-      <PageHeader title="Historial de compras" description="Compras registradas, filtrables por fecha." />
-      <DocumentoList resource="compras" titulo="Compras" listar={api.compras.listar} obtener={api.compras.obtener} />
-    </>
+    <RequirePermiso permiso="compras.ver">
+      <PageHeader
+        title="Historial de compras"
+        description="Compras registradas, de la más reciente a la más antigua."
+      />
+      <DocumentoHistorial resource="compras" />
+    </RequirePermiso>
   );
 }

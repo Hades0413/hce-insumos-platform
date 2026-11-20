@@ -1,7 +1,3 @@
-/**
- * UUID v4 criptográficamente seguro. `crypto.randomUUID` solo existe en contextos
- * seguros (https / localhost); el fallback usa `getRandomValues` (también CSPRNG).
- */
 export function uuidv4(): string {
   const c = globalThis.crypto;
   if (typeof c?.randomUUID === 'function') return c.randomUUID();

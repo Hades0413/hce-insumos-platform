@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiParam, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DocumentoResumenDto, Paginated, RequestContext, VentaDetalleDto } from '@hce/contracts';
 import { ApiProblemResponses } from '../common/decorators/api-problem.decorator';
 import { ReqContext } from '../common/decorators/current-user.decorator';
@@ -16,7 +16,7 @@ export class VentasController {
   constructor(private readonly inventario: InventarioFacade) {}
 
   @Post()
-  @Auth('FARMACEUTICO')
+  @Auth('ventas.registrar')
   @Idempotent()
   @ApiOperation({
     summary: 'Registrar Venta',
@@ -34,7 +34,7 @@ export class VentasController {
   }
 
   @Get()
-  @Auth()
+  @Auth('ventas.ver')
   @ApiOperation({ summary: 'Listar Venta' })
   @ApiOkResponse({ type: [DocumentoResumenResponse] })
   listar(
@@ -45,7 +45,8 @@ export class VentasController {
   }
 
   @Get(':id')
-  @Auth()
+  @ApiParam({ name: 'id', example: 1 })
+  @Auth('ventas.ver')
   @ApiOperation({ summary: 'Detalle de venta' })
   @ApiOkResponse({ type: DocumentoDetalleResponse })
   @ApiProblemResponses(404)

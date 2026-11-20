@@ -1,5 +1,6 @@
 import { DynamicModule, Global, Inject, Logger, Module, OnApplicationShutdown } from '@nestjs/common';
 import * as sql from 'mssql';
+import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { MSSQL_OPTIONS, MSSQL_POOL } from './mssql.constants';
 import { MssqlExecutor } from './mssql.executor';
@@ -26,6 +27,9 @@ async function connectWithRetry(options: MssqlModuleOptions, logger: Logger): Pr
       trustServerCertificate: options.trustServerCertificate,
       appName: options.appName,
       enableArithAbort: true,
+      ...(options.caFile
+        ? { cryptoCredentialsDetails: { ca: readFileSync(options.caFile, 'utf8'), minVersion: 'TLSv1.2' as const } }
+        : {}),
     },
   };
   const maxAttempts = 30;

@@ -3,14 +3,14 @@ import { ApiHeader } from '@nestjs/swagger';
 import { IdempotencyKeyInterceptor } from '../interceptors/idempotency-key.interceptor';
 import { GatewayRequest } from '../security/authenticated-user';
 
-/** Exige header Idempotency-Key (UUID) y lo documenta en OpenAPI. */
 export function Idempotent() {
   return applyDecorators(
     UseInterceptors(IdempotencyKeyInterceptor),
     ApiHeader({
       name: 'Idempotency-Key',
-      required: true,
-      description: 'UUID v4 por intento de registro. Reintentar con la misma key nunca duplica el documento.',
+      required: false,
+      description:
+        'UUID v4 por intento de registro (obligatorio). Reintentar con la misma key devuelve el mismo documento. En Swagger, déjalo vacío y se genera solo.',
       schema: { type: 'string', format: 'uuid' },
     }),
   );

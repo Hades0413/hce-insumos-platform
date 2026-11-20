@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "target": "ES2023",
     "lib": ["ES2023"],
     "declaration": false,
@@ -12,7 +12,6 @@
     "esModuleInterop": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
     "strict": true,
@@ -26,10 +25,12 @@
     "resolveJsonModule": true,
     "types": ["node", "jest"],
     "paths": {
-      "@hce/contracts": ["libs/contracts/src"],
-      "@hce/contracts/*": ["libs/contracts/src/*"],
-      "@hce/common": ["libs/common/src"],
-      "@hce/common/*": ["libs/common/src/*"]
+      "@hce/contracts": ["./libs/contracts/src"],
+      "@hce/contracts/*": ["./libs/contracts/src/*"],
+      "@hce/core": ["./libs/core/src"],
+      "@hce/core/*": ["./libs/core/src/*"],
+      "@hce/common": ["./libs/common/src"],
+      "@hce/common/*": ["./libs/common/src/*"]
     }
   },
   "include": ["apps/**/*.ts", "libs/**/*.ts", "jest.setup.ts"],

@@ -1,5 +1,7 @@
+import { AggregateRoot } from '@hce/core';
 import { validarCantidad, validarId } from '../shared/cantidad';
 import { LineaDocumento, TotalesDocumento, totalizar, validarEstructura } from '../shared/documento';
+import { documentoRegistrado, EVENTOS_INVENTARIO } from '../shared/eventos';
 import { Money } from '../shared/money';
 import { PoliticaPrecios } from '../shared/politica-precios';
 
@@ -10,19 +12,17 @@ export interface ItemCompra {
 }
 
 export interface LineaCompra extends LineaDocumento {
-  /** Nuevo precio de venta del producto = costo × 1.35 (regla del enunciado). */
   readonly nuevoPrecioVenta: Money;
 }
 
-/**
- * Agregado Compra: garantiza que cabecera y detalle sean consistentes y que el
- * nuevo precio de venta de cada producto se derive del costo de compra.
- */
-export class Compra {
+export class Compra extends AggregateRoot {
   private constructor(
     readonly lineas: readonly LineaCompra[],
     readonly totales: TotalesDocumento,
-  ) {}
+  ) {
+    super();
+    this.record(documentoRegistrado(EVENTOS_INVENTARIO.COMPRA_REGISTRADA, lineas, totales));
+  }
 
   static registrar(items: readonly ItemCompra[], politica: PoliticaPrecios): Compra {
     validarEstructura(items, 'compra');

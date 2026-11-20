@@ -1,4 +1,3 @@
-/** Quién y desde qué request ejecuta una operación (trazabilidad hasta los triggers de BD). */
 export interface AuditContext {
   readonly userId: string;
   readonly requestId: string;

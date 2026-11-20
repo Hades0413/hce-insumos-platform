@@ -3,3 +3,4 @@ export * from './envelope';
 export * from './errors';
 export * from './inventory';
 export * from './patterns';
+export * from './permissions';

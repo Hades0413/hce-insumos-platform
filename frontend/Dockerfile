@@ -6,11 +6,12 @@
 # NEXT_PUBLIC_* y MF_*_URL son de BUILD: Next los compila en el bundle y en
 # el routes-manifest (rewrites del shell).
 # ---------------------------------------------------------------------------
-ARG NODE_VERSION=24-alpine
+# Imagen base fijada por DIGEST (reproducible e inmune a re-etiquetados del registro).
+ARG NODE_IMAGE=node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 
-FROM node:${NODE_VERSION} AS base
+FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@11.8.0 --activate
 WORKDIR /repo
 
 # --- deps: solo manifiestos => la capa se cachea mientras no cambien dependencias
@@ -23,6 +24,7 @@ COPY apps/mf-kardex/package.json apps/mf-kardex/
 COPY packages/domain/package.json packages/domain/
 COPY packages/api-client/package.json packages/api-client/
 COPY packages/ui/package.json packages/ui/
+COPY packages/features/package.json packages/features/
 COPY packages/config/package.json packages/config/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
@@ -43,15 +45,18 @@ RUN test -n "${APP}" || (echo "Falta --build-arg APP" && exit 1)
 RUN pnpm --filter "@hce/${APP}" build
 
 # --- runtime mínimo: solo el output standalone, usuario sin privilegios
-FROM node:${NODE_VERSION} AS runtime
+FROM ${NODE_IMAGE} AS runtime
 ARG APP
 ARG PORT=3000
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=${PORT}
 WORKDIR /app
 RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
-COPY --from=build --chown=nextjs:nodejs /repo/apps/${APP}/.next/standalone ./
-COPY --from=build --chown=nextjs:nodejs /repo/apps/${APP}/.next/static ./apps/${APP}/.next/static
-COPY --from=build --chown=nextjs:nodejs /repo/apps/${APP}/public ./apps/${APP}/public
+# Código propiedad de root y solo lectura para el usuario de la app: aunque el
+# proceso se comprometa, no puede modificar su propio código (compose además
+# monta el sistema de archivos read_only).
+COPY --from=build --chown=root:root /repo/apps/${APP}/.next/standalone ./
+COPY --from=build --chown=root:root /repo/apps/${APP}/.next/static ./apps/${APP}/.next/static
+COPY --from=build --chown=root:root /repo/apps/${APP}/public ./apps/${APP}/public
 ENV APP=${APP} APP_DIR=/app/apps/${APP}
 USER nextjs
 EXPOSE ${PORT}

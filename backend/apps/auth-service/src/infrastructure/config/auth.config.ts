@@ -16,12 +16,11 @@ export const authEnvSchema = Joi.object({
   SEED_DEMO_USERS: Joi.boolean().default(false),
   SEED_USERS_PASSWORD: Joi.when('SEED_DEMO_USERS', {
     is: true,
-    then: Joi.string().min(12).pattern(/[A-Z]/).pattern(/[a-z]/).pattern(/[0-9]/).required(),
+    then: Joi.string().min(14).pattern(/[A-Z]/).pattern(/[a-z]/).pattern(/[0-9]/).required(),
     otherwise: Joi.string().optional(),
   }),
 });
 
-/** Acepta PEM directo (con \n escapados) o PEM en base64 (cómodo para variables de entorno). */
 export function decodePem(value: string): string {
   const v = value.trim();
   if (v.startsWith('-----BEGIN')) return v.replace(/\\n/g, '\n');

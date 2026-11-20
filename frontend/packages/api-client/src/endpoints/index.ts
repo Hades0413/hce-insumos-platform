@@ -4,6 +4,11 @@ import type {
   CompraDetalleDto,
   CrearProductoDto,
   DocumentoQuery,
+  GuardarExcepcionDto,
+  PermisoCatalogoDto,
+  PermisosUsuarioDto,
+  RolDto,
+  UsuarioAdminDto,
   DocumentoResumenDto,
   HealthDto,
   KardexItemDto,
@@ -19,7 +24,6 @@ import type {
   VentaDetalleDto,
 } from '../types';
 
-/** Elimina parámetros vacíos para no enviar `?search=` innecesarios. */
 const clean = <T extends object>(q: T | undefined): Partial<T> | undefined => {
   if (!q) return undefined;
   return Object.fromEntries(
@@ -32,13 +36,36 @@ const id = (value: number): string => {
   return encodeURIComponent(String(value));
 };
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PERMISO_CODE = /^[a-z_]+\.[a-z_]+$/;
+
+const uuid = (value: string): string => {
+  if (!UUID.test(value)) throw new RangeError('Identificador de usuario inválido');
+  return value;
+};
+const permisoCode = (value: string): string => {
+  if (!PERMISO_CODE.test(value)) throw new RangeError('Código de permiso inválido');
+  return encodeURIComponent(value);
+};
+
 export function createApi(http: AxiosInstance, resetCsrf: () => void = () => undefined) {
   return {
     auth: {
       csrf: () => http.get<{ csrfToken: string }>('/auth/csrf', { skipAuthRefresh: true }).then((r) => r.data),
       login: (dto: LoginDto) =>
-        http.post<SessionDto>('/auth/login', dto, { skipAuthRefresh: true }).then((r) => r.data),
-      refresh: () => http.post<SessionDto>('/auth/refresh', undefined, { skipAuthRefresh: true }).then((r) => r.data),
+        http.post<SessionDto>('/auth/login', dto, { skipAuthRefresh: true }).then((r) => {
+          resetCsrf();
+          return r.data;
+        }),
+      refresh: () =>
+        http
+          .post<SessionDto>('/auth/refresh', undefined, {
+            skipAuthRefresh: true,
+          })
+          .then((r) => {
+            resetCsrf();
+            return r.data;
+          }),
       logout: () =>
         http.post<void>('/auth/logout', undefined, { skipAuthRefresh: true }).then(() => {
           resetCsrf();
@@ -57,7 +84,9 @@ export function createApi(http: AxiosInstance, resetCsrf: () => void = () => und
     compras: {
       registrar: (dto: RegistrarCompraDto, idempotencyKey: string) =>
         http
-          .post<CompraDetalleDto>('/compras', dto, { headers: { 'Idempotency-Key': idempotencyKey } })
+          .post<CompraDetalleDto>('/compras', dto, {
+            headers: { 'Idempotency-Key': idempotencyKey },
+          })
           .then((r) => r.data),
       listar: (q?: DocumentoQuery) =>
         http.get<Paginated<DocumentoResumenDto>>('/compras', { params: clean(q) }).then((r) => r.data),
@@ -66,7 +95,9 @@ export function createApi(http: AxiosInstance, resetCsrf: () => void = () => und
     ventas: {
       registrar: (dto: RegistrarVentaDto, idempotencyKey: string) =>
         http
-          .post<VentaDetalleDto>('/ventas', dto, { headers: { 'Idempotency-Key': idempotencyKey } })
+          .post<VentaDetalleDto>('/ventas', dto, {
+            headers: { 'Idempotency-Key': idempotencyKey },
+          })
           .then((r) => r.data),
       listar: (q?: DocumentoQuery) =>
         http.get<Paginated<DocumentoResumenDto>>('/ventas', { params: clean(q) }).then((r) => r.data),
@@ -77,7 +108,29 @@ export function createApi(http: AxiosInstance, resetCsrf: () => void = () => und
         http.get<Paginated<KardexItemDto>>('/kardex', { params: clean(q) }).then((r) => r.data),
       movimientos: (productoId: number, q?: PageQuery) =>
         http
-          .get<KardexMovimientosDto>(`/kardex/${id(productoId)}/movimientos`, { params: clean(q) })
+          .get<KardexMovimientosDto>(`/kardex/${id(productoId)}/movimientos`, {
+            params: clean(q),
+          })
+          .then((r) => r.data),
+    },
+    admin: {
+      permisos: () => http.get<PermisoCatalogoDto[]>('/admin/permisos').then((r) => r.data),
+      roles: () => http.get<RolDto[]>('/admin/roles').then((r) => r.data),
+      usuarios: (q?: SearchQuery) =>
+        http
+          .get<Paginated<UsuarioAdminDto>>('/admin/usuarios', {
+            params: clean(q),
+          })
+          .then((r) => r.data),
+      permisosUsuario: (usuarioId: string) =>
+        http.get<PermisosUsuarioDto>(`/admin/usuarios/${uuid(usuarioId)}/permisos`).then((r) => r.data),
+      guardarExcepcion: (usuarioId: string, permiso: string, dto: GuardarExcepcionDto) =>
+        http
+          .put<PermisosUsuarioDto>(`/admin/usuarios/${uuid(usuarioId)}/excepciones/${permisoCode(permiso)}`, dto)
+          .then((r) => r.data),
+      quitarExcepcion: (usuarioId: string, permiso: string) =>
+        http
+          .delete<PermisosUsuarioDto>(`/admin/usuarios/${uuid(usuarioId)}/excepciones/${permisoCode(permiso)}`)
           .then((r) => r.data),
     },
     health: () => http.get<HealthDto>('/health').then((r) => r.data),

@@ -1,8 +1,12 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { AppShell } from '@hce/ui';
+import { AppShellContainer } from '@hce/features';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  return <AppShell zone="inicio">{children}</AppShell>;
+  const pathname = usePathname();
+  return (
+    <AppShellContainer zone={pathname.startsWith('/seguridad') ? 'seguridad' : 'inicio'}>{children}</AppShellContainer>
+  );
 }

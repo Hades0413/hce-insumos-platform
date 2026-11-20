@@ -24,7 +24,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 FROM deps AS build
 ARG APP
 RUN test -n "${APP}" || (echo "Falta --build-arg APP" && exit 1)
-COPY nest-cli.json tsconfig.json tsconfig.build.json ./
+COPY nest-cli.json tsconfig.json tsconfig.build.json webpack.config.js ./
 COPY libs ./libs
 COPY apps ./apps
 RUN pnpm exec nest build "${APP}"

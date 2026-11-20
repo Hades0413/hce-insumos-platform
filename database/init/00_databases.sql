@@ -1,5 +1,5 @@
 /* =============================================================================
-   00_databases.sql — Bases de datos (una por microservicio: "database per service")
+   00_databases.sql: Bases de datos (una por microservicio: "database per service")
    Idempotente: se puede ejecutar N veces.
    Variables sqlcmd: ninguna.
    ============================================================================= */

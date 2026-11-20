@@ -2,7 +2,7 @@
   "name": "hce-insumos-frontend",
   "private": true,
   "version": "1.0.0",
-  "description": "Frontend HCE Insumos — Next.js Multi-Zones (shell + microfronts compras/ventas/kardex)",
+  "description": "Frontend HCE Insumos: Next.js Multi-Zones (shell + microfronts compras/ventas/kardex)",
   "packageManager": "pnpm@11.8.0",
   "engines": { "node": ">=22.0.0" },
   "scripts": {

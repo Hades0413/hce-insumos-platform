@@ -1,16 +1,11 @@
-import type { IncomingMessage } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Params } from 'nestjs-pino';
 
 export interface HttpLoggingOptions {
-  /** Subcadenas de URL que no se registran (p. ej. health checks). */
   readonly ignoreUrlsContaining?: readonly string[];
 }
 
-/**
- * Logs estructurados JSON (pino). Nunca se registran secretos: cookies,
- * Authorization, CSRF y contraseñas se redactan (OWASP A09).
- * El request-id (correlation id) se reutiliza como id del log HTTP.
- */
 export function buildLoggerParams(
   service: string,
   level: string,
@@ -23,7 +18,16 @@ export function buildLoggerParams(
       level,
       base: { service },
       messageKey: 'msg',
-      genReqId: (req: IncomingMessage) => (req as IncomingMessage & { requestId?: string }).requestId ?? 'n/a',
+      genReqId: (req: IncomingMessage, res: ServerResponse) => {
+        const r = req as IncomingMessage & { requestId?: string };
+        r.requestId ??= randomUUID();
+        res.setHeader('X-Request-Id', r.requestId);
+        return r.requestId;
+      },
+      customProps: (req: IncomingMessage) => {
+        const client = req.headers['x-request-id'];
+        return typeof client === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(client) ? { clientRequestId: client } : {};
+      },
       autoLogging: { ignore: (req: IncomingMessage) => ignore.some((p) => req.url?.includes(p) ?? false) },
       redact: {
         paths: [

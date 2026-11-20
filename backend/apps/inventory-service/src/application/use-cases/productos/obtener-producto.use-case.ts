@@ -1,8 +1,8 @@
-import { AppError } from '@hce/common';
+import { AppError } from '@hce/core';
 import { IdRequest, ProductoDto } from '@hce/contracts';
 import { ProductoRepository } from '../../../domain/producto/producto.repository.port';
 import { validarId } from '../../../domain/shared/cantidad';
-import { UseCase } from '../../ports/use-case';
+import { UseCase } from '@hce/core';
 import { toProductoDto } from '../../presenters';
 
 export class ObtenerProductoUseCase implements UseCase<IdRequest, ProductoDto> {

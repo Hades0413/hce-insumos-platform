@@ -13,7 +13,7 @@ import {
   VentaDetalleDto,
 } from '@hce/contracts';
 import { USE_CASES } from '../../../application/ports/tokens';
-import { UseCase } from '../../../application/ports/use-case';
+import { UseCase } from '@hce/core';
 
 @Controller()
 export class ComprasNatsController {
