@@ -100,7 +100,7 @@ jobs:
       - name: Build de todas las imágenes
         run: docker compose build
       - name: Escaneo de vulnerabilidades (imagen del gateway)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hce-insumos/api-gateway:local
           severity: CRITICAL,HIGH
