@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@hce/domain": "workspace:*",
-    "axios": "1.21.0"
+    "axios": "1.21.1"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.0.0",
